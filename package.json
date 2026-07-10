@@ -4,7 +4,9 @@
   "private": true,
   "description": "Local Age of Mythology companion app.",
   "scripts": {
+    "build": "node tools/build-static.mjs",
     "check": "node --check data/aom-data.js && node --check data/generated/aom-production.js && node --check data/generated/aom-technology-supplement.js && node --check data/generated/aom-ui-icons.js && node --check src/app.js && node --check tools/runtime-data.mjs && node --check tools/import-fandom.mjs && node --check tools/import-icons.mjs && node --check tools/import-ui-icons.mjs && node --check tools/import-details.mjs && node --check tools/import-technology-supplement.mjs && node --check tools/build-production-supplement.mjs && node --check tools/validate-data.mjs && node tools/validate-data.mjs",
+    "deploy": "npx wrangler deploy",
     "build:production": "node tools/build-production-supplement.mjs",
     "validate:data": "node tools/validate-data.mjs",
     "import:wiki": "node tools/import-fandom.mjs",
