@@ -21,11 +21,12 @@
 
         <nav class="quick-nav" aria-label="Sections">
           <a href="#home-view" data-view-link="home-view">Home</a>
-          <a href="#counter-view" data-view-link="counter-view">Counters</a>
+          <a href="#counter-view" data-view-link="counter-view">Matchup</a>
           <a href="#god-view" data-view-link="god-view">God</a>
           <a href="#building-view" data-view-link="building-view">Buildings</a>
           <a href="#unit-view" data-view-link="unit-view">Units</a>
           <a href="#library-view" data-view-link="library-view">Library</a>
+          <a href="#build-order-view" data-view-link="build-order-view">Build Orders</a>
         </nav>
       </aside>
 
@@ -37,6 +38,14 @@
           </div>
           <div class="topbar-actions">
             <div class="stats-strip" id="stats-strip"></div>
+            <div class="age-group" role="group" aria-label="Current age filter">
+              <button class="age-button active" type="button" data-age="all">All</button>
+              <button class="age-button" type="button" data-age="Archaic">Archaic</button>
+              <button class="age-button" type="button" data-age="Classical">Classical</button>
+              <button class="age-button" type="button" data-age="Heroic">Heroic</button>
+              <button class="age-button" type="button" data-age="Mythic">Mythic</button>
+              <button class="age-button" type="button" data-age="Wonder">Wonder</button>
+            </div>
             <div class="mode-group mode-group-light" role="group" aria-label="Result filters">
               <button class="mode-button active" type="button" data-mode="core">Core</button>
               <button class="mode-button" type="button" data-mode="all">All options</button>
@@ -64,7 +73,7 @@
           <div class="panel counter-panel">
             <div class="panel-heading">
               <div>
-                <p class="eyebrow">Counter Finder</p>
+                <p class="eyebrow">Matchup Planner</p>
                 <h2 id="counter-title">Pick an enemy unit</h2>
               </div>
               <span class="badge" id="counter-count">0 matches</span>
@@ -80,6 +89,7 @@
                 <datalist id="enemy-units"></datalist>
               </label>
             </div>
+            <div class="matchup-brief" id="matchup-brief"></div>
             <div class="enemy-unit-picker" id="enemy-unit-picker"></div>
             <div class="target-summary" id="target-summary"></div>
             <div class="result-list" id="counter-results"></div>
@@ -148,6 +158,130 @@
               <input id="library-search" type="search" autocomplete="off" placeholder="Unit, god, building, tech">
             </label>
             <div class="library-results" id="library-results"></div>
+          </div>
+        </section>
+
+        <section class="view-panel" id="build-order-view">
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Local Playbook</p>
+                <h2>Build Orders</h2>
+              </div>
+              <span class="badge" id="build-order-count">0 saved</span>
+            </div>
+
+            <div class="build-order-layout">
+              <aside class="build-order-sidebar" aria-label="Saved build orders">
+                <div class="build-order-actions">
+                  <button class="primary-button" type="button" id="build-order-new">New build</button>
+                  <button class="secondary-button" type="button" id="build-order-export-all">Export all</button>
+                </div>
+                <div class="saved-build-order-list" id="build-order-list"></div>
+              </aside>
+
+              <div class="build-order-editor">
+                <form id="build-order-form">
+                  <div class="form-grid">
+                    <label class="field field-light">
+                      <span>Title</span>
+                      <input id="build-order-title" type="text" maxlength="90" placeholder="Zeus Fast Classical">
+                    </label>
+                    <label class="field field-light">
+                      <span>Author</span>
+                      <input id="build-order-author" type="text" maxlength="60" placeholder="Optional">
+                    </label>
+                    <label class="field field-light">
+                      <span>Your god</span>
+                      <select id="build-order-god"></select>
+                    </label>
+                    <label class="field field-light">
+                      <span>Enemy god</span>
+                      <select id="build-order-enemy"></select>
+                    </label>
+                    <label class="field field-light">
+                      <span>Target age</span>
+                      <select id="build-order-age">
+                        <option value="all">Flexible</option>
+                        <option value="Archaic">Archaic</option>
+                        <option value="Classical">Classical</option>
+                        <option value="Heroic">Heroic</option>
+                        <option value="Mythic">Mythic</option>
+                        <option value="Wonder">Wonder</option>
+                      </select>
+                    </label>
+                    <label class="field field-light">
+                      <span>Patch / version</span>
+                      <input id="build-order-patch" type="text" maxlength="60" placeholder="Retold current">
+                    </label>
+                  </div>
+
+                  <label class="field field-light build-order-wide-field">
+                    <span>Tags</span>
+                    <input id="build-order-tags" type="text" maxlength="120" placeholder="rush, land map, safe opening">
+                  </label>
+
+                  <div class="build-order-section">
+                    <div class="build-order-section-heading">
+                      <div>
+                        <h3>Goals</h3>
+                        <p>Milestones this build should hit by a time.</p>
+                      </div>
+                      <button class="secondary-button" type="button" data-build-action="add-goal">Add goal</button>
+                    </div>
+                    <div class="build-order-rows" id="build-order-goals"></div>
+                  </div>
+
+                  <div class="build-order-section">
+                    <div class="build-order-section-heading">
+                      <div>
+                        <h3>Steps</h3>
+                        <p>Timed actions and optional notes.</p>
+                      </div>
+                      <button class="secondary-button" type="button" data-build-action="add-step">Add step</button>
+                    </div>
+                    <div class="build-order-rows" id="build-order-steps"></div>
+                  </div>
+
+                  <label class="field field-light build-order-wide-field">
+                    <span>General notes</span>
+                    <textarea id="build-order-notes" rows="4" placeholder="Map assumptions, scouting pivots, matchup warnings"></textarea>
+                  </label>
+
+                  <div class="build-order-form-actions">
+                    <button class="primary-button" type="submit">Save build</button>
+                    <button class="secondary-button" type="button" id="build-order-export">Export code</button>
+                    <button class="danger-button" type="button" id="build-order-delete">Delete</button>
+                  </div>
+                </form>
+
+                <div class="build-order-share-grid">
+                  <section class="build-order-share-card">
+                    <div class="build-order-section-heading">
+                      <div>
+                        <h3>Share code</h3>
+                        <p>Copy one build order or paste one from another player.</p>
+                      </div>
+                      <button class="secondary-button" type="button" id="build-order-import">Import code</button>
+                    </div>
+                    <textarea id="build-order-share-code" rows="5" placeholder="AOMBO1..."></textarea>
+                  </section>
+
+                  <section class="build-order-share-card">
+                    <div class="build-order-section-heading">
+                      <div>
+                        <h3>Library backup</h3>
+                        <p>Export or import every local build order.</p>
+                      </div>
+                      <button class="secondary-button" type="button" id="build-order-import-all">Import backup</button>
+                    </div>
+                    <textarea id="build-order-backup-code" rows="5" placeholder="AOMBOLIB1..."></textarea>
+                  </section>
+                </div>
+
+                <div class="build-order-status" id="build-order-status" role="status"></div>
+              </div>
+            </div>
           </div>
         </section>
       </main>

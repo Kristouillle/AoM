@@ -3,13 +3,25 @@
   const icons = window.AOM_ICONS || { units: {}, buildings: {}, technologies: {} };
   const uiIcons = window.AOM_UI_ICONS || { stats: {}, ages: {}, pantheons: {}, unitTypes: {} };
   const details = window.AOM_DETAILS || { units: {}, technologies: {} };
+  const buildOrderDbName = "aom-companion-build-orders";
+  const buildOrderStoreName = "buildOrders";
+  const buildOrderSharePrefix = "AOMBO1.";
+  const buildOrderLibraryPrefix = "AOMBOLIB1.";
   const state = {
     godId: localStorage.getItem("aom:selectedGod") || "zeus",
     enemyGodId: localStorage.getItem("aom:enemyGod") || "all",
     mode: localStorage.getItem("aom:counterMode") || "core",
+    age: localStorage.getItem("aom:currentAge") || "all",
     buildingId: localStorage.getItem("aom:selectedBuilding") || "",
     unitId: localStorage.getItem("aom:selectedUnit") || "",
+    buildOrderId: localStorage.getItem("aom:selectedBuildOrder") || "",
+    matchupBuildOrderId: localStorage.getItem("aom:matchupBuildOrder") || "__suggested",
+    buildOrders: [],
+    buildOrdersLoaded: false,
+    buildOrderStorageMode: "indexedDB",
+    buildOrderStatus: "Loading build orders...",
   };
+  let buildOrderDb = null;
 
   const els = {
     dataStatus: byId("data-status"),
@@ -17,11 +29,35 @@
     homeGodSearch: byId("home-god-search"),
     homeGodGrid: byId("home-god-grid"),
     librarySearch: byId("library-search"),
+    buildOrderCount: byId("build-order-count"),
+    buildOrderList: byId("build-order-list"),
+    buildOrderForm: byId("build-order-form"),
+    buildOrderNew: byId("build-order-new"),
+    buildOrderExportAll: byId("build-order-export-all"),
+    buildOrderExport: byId("build-order-export"),
+    buildOrderImport: byId("build-order-import"),
+    buildOrderImportAll: byId("build-order-import-all"),
+    buildOrderDelete: byId("build-order-delete"),
+    buildOrderTitle: byId("build-order-title"),
+    buildOrderAuthor: byId("build-order-author"),
+    buildOrderGod: byId("build-order-god"),
+    buildOrderEnemy: byId("build-order-enemy"),
+    buildOrderAge: byId("build-order-age"),
+    buildOrderPatch: byId("build-order-patch"),
+    buildOrderTags: byId("build-order-tags"),
+    buildOrderGoals: byId("build-order-goals"),
+    buildOrderSteps: byId("build-order-steps"),
+    buildOrderNotes: byId("build-order-notes"),
+    buildOrderShareCode: byId("build-order-share-code"),
+    buildOrderBackupCode: byId("build-order-backup-code"),
+    buildOrderStatus: byId("build-order-status"),
     enemyGodSelect: byId("enemy-god-select"),
     enemySearch: byId("enemy-search"),
     enemyUnits: byId("enemy-units"),
     enemyUnitPicker: byId("enemy-unit-picker"),
+    matchupBrief: byId("matchup-brief"),
     modeButtons: Array.from(document.querySelectorAll(".mode-button")),
+    ageButtons: Array.from(document.querySelectorAll(".age-button")),
     viewPanels: Array.from(document.querySelectorAll(".view-panel")),
     navLinks: Array.from(document.querySelectorAll("[data-view-link]")),
     selectedTitle: byId("selected-title"),
@@ -130,8 +166,10 @@
   function init() {
     populateEnemyGodSelect();
     populateEnemyDatalist();
+    populateBuildOrderSelects();
     wireEvents();
     render();
+    loadBuildOrders();
   }
 
   function withProductionSupplement(baseData, supplement = {}, technologySupplement = {}) {
@@ -268,10 +306,46 @@
     });
   }
 
+  function populateBuildOrderSelects() {
+    els.buildOrderGod.textContent = "";
+    majorGods().forEach((god) => {
+      const option = document.createElement("option");
+      option.value = god.id;
+      option.textContent = god.name;
+      els.buildOrderGod.append(option);
+    });
+
+    els.buildOrderEnemy.textContent = "";
+    const allOption = document.createElement("option");
+    allOption.value = "all";
+    allOption.textContent = "Any enemy";
+    els.buildOrderEnemy.append(allOption);
+    majorGods().forEach((god) => {
+      const option = document.createElement("option");
+      option.value = god.id;
+      option.textContent = god.name;
+      els.buildOrderEnemy.append(option);
+    });
+  }
+
   function wireEvents() {
     window.addEventListener("hashchange", renderActiveView);
     els.homeGodSearch.addEventListener("input", renderHome);
     els.librarySearch.addEventListener("input", renderLibrary);
+    els.buildOrderNew.addEventListener("click", () => {
+      state.buildOrderId = "";
+      localStorage.removeItem("aom:selectedBuildOrder");
+      state.buildOrderStatus = "Drafting a new build order.";
+      renderBuildOrders(defaultBuildOrderDraft());
+    });
+    els.buildOrderExportAll.addEventListener("click", exportBuildOrderLibrary);
+    els.buildOrderExport.addEventListener("click", exportCurrentBuildOrder);
+    els.buildOrderImport.addEventListener("click", importBuildOrderCode);
+    els.buildOrderImportAll.addEventListener("click", importBuildOrderLibraryCode);
+    els.buildOrderDelete.addEventListener("click", deleteSelectedBuildOrder);
+    els.buildOrderForm.addEventListener("submit", saveBuildOrderFromForm);
+    els.buildOrderForm.addEventListener("click", handleBuildOrderFormClick);
+    els.buildOrderList.addEventListener("click", handleBuildOrderListClick);
     els.enemyGodSelect.addEventListener("change", () => {
       state.enemyGodId = els.enemyGodSelect.value;
       localStorage.setItem("aom:enemyGod", state.enemyGodId);
@@ -279,6 +353,22 @@
       renderCounters();
     });
     els.enemySearch.addEventListener("input", renderCounters);
+    els.matchupBrief.addEventListener("change", handleMatchupBuildOrderChange);
+    els.matchupBrief.addEventListener("click", handleMatchupBuildOrderClick);
+
+    els.ageButtons.forEach((button) => {
+      button.addEventListener("click", () => {
+        state.age = button.dataset.age;
+        localStorage.setItem("aom:currentAge", state.age);
+        populateEnemyDatalist();
+        renderAgeButtons();
+        renderSummary();
+        renderBuildings();
+        renderUnits();
+        renderCounters();
+        renderLibrary();
+      });
+    });
 
     els.modeButtons.forEach((button) => {
       button.addEventListener("click", () => {
@@ -294,6 +384,7 @@
   }
 
   function render() {
+    renderAgeButtons();
     renderModeButtons();
     renderActiveView();
     renderSummary();
@@ -303,6 +394,7 @@
     renderUnits();
     renderCounters();
     renderLibrary();
+    renderBuildOrders();
   }
 
   function renderActiveView() {
@@ -408,6 +500,15 @@
   function renderModeButtons() {
     els.modeButtons.forEach((button) => {
       button.classList.toggle("active", button.dataset.mode === state.mode);
+      button.setAttribute("aria-pressed", button.dataset.mode === state.mode ? "true" : "false");
+    });
+  }
+
+  function renderAgeButtons() {
+    if (state.age !== "all" && !ageOrder.has(state.age)) state.age = "all";
+    els.ageButtons.forEach((button) => {
+      button.classList.toggle("active", button.dataset.age === state.age);
+      button.setAttribute("aria-pressed", button.dataset.age === state.age ? "true" : "false");
     });
   }
 
@@ -612,8 +713,10 @@
     const query = els.enemySearch.value.trim();
     const enemyGod = selectedEnemyGod();
     const target = resolveTarget(query, enemyGod);
+    const results = target ? counterResultsForTarget(god, target) : [];
 
     renderEnemyUnitPicker(enemyGod, query, target);
+    renderMatchupBrief(god, enemyGod, target, results);
 
     if (!target) {
       els.counterTitle.textContent = enemyGod ? `Pick a ${enemyGod.name} unit` : "Pick an enemy unit";
@@ -621,6 +724,7 @@
       els.targetSummary.innerHTML = [
         enemyGod ? tag(`Enemy: ${enemyGod.name}`, "red") : "",
         enemyGod ? tag(pantheonName(enemyGod.pantheon), "green") : "",
+        tag(currentAgeLabel(), "gold"),
         tag("cavalry", "blue"),
         tag("archer", "blue"),
         tag("myth", "blue"),
@@ -630,17 +734,12 @@
       return;
     }
 
-    const results = availableUnits(god)
-      .filter((unit) => !unit.classes.includes("economic"))
-      .map((unit) => scoreCounter(unit, target))
-      .filter((result) => result.score > 0)
-      .sort((a, b) => b.score - a.score || sortUnits(a.unit, b.unit));
-
     els.counterTitle.textContent = `Counter ${target.name}${enemyGod ? ` from ${enemyGod.name}` : ""}`;
     els.counterCount.textContent = `${results.length} matches`;
     els.targetSummary.innerHTML = [
       enemyGod ? tag(`Enemy: ${enemyGod.name}`, "red") : "",
       enemyGod ? tag(pantheonName(enemyGod.pantheon), "green") : "",
+      tag(currentAgeLabel(), "gold"),
       ...target.tags.map((item) => tag(item, "blue")),
       target.unit ? tag(target.unit.age, "gold") : "",
       target.unit ? tag(target.unit.building, "green") : "",
@@ -653,6 +752,370 @@
     Array.from(els.counterResults.querySelectorAll("[data-unit-id]")).forEach((row) => {
       row.addEventListener("click", () => selectUnit(row.dataset.unitId, true));
     });
+  }
+
+  function counterResultsForTarget(god, target) {
+    return availableUnits(god)
+      .filter((unit) => !unit.classes.includes("economic"))
+      .map((unit) => scoreCounter(unit, target))
+      .filter((result) => result.score > 0)
+      .sort((a, b) => b.score - a.score || sortUnits(a.unit, b.unit));
+  }
+
+  function renderMatchupBrief(god, enemyGod, target, exactResults) {
+    const threats = enemyThreatProfile(enemyGod);
+    const planTarget = target || inferredTargetFromThreats(threats);
+    const planResults = target ? exactResults : planTarget ? counterResultsForTarget(god, planTarget) : [];
+    const topCounters = planResults.slice(0, 3);
+    const steps = buildOrderSteps(god, enemyGod, target, planTarget, topCounters, threats);
+    const watchItems = matchupWatchItems(enemyGod, target, threats);
+    const matchingOrders = matchingBuildOrdersForMatchup(god, enemyGod);
+    const selectedOrder = selectedMatchupBuildOrder(matchingOrders);
+    const enemyLabel = enemyGod ? enemyGod.name : "Any enemy";
+    const enemyPantheon = enemyGod ? pantheonName(enemyGod.pantheon) : "Scout first";
+    const planLabel = target ? `Target: ${target.name}` : planTarget ? `Likely threat: ${planTarget.name}` : "No matchup selected";
+
+    els.matchupBrief.innerHTML = `
+      <section class="matchup-head">
+        <div class="matchup-versus">
+          ${matchupGodPill(god, pantheonName(god.pantheon))}
+          <span class="versus-token">vs</span>
+          ${enemyGod ? matchupGodPill(enemyGod, enemyPantheon) : matchupEmptyPill(enemyLabel, enemyPantheon)}
+        </div>
+        <div class="meta-line">
+          ${tag(currentAgeLabel(), "gold")}
+          ${tag(state.mode === "core" ? "Core options" : "All options", "green")}
+          ${tag(planLabel, target ? "red" : "blue")}
+          ${tag(selectedOrder ? "Saved build override" : "Suggested build order", selectedOrder ? "green" : "blue")}
+        </div>
+      </section>
+      <div class="matchup-plan-grid">
+        <section class="matchup-card matchup-card-wide">
+          <div class="matchup-card-heading">
+            <h3>Build order</h3>
+            <span>${escapeHtml(selectedOrder ? "saved override" : target ? "unit-specific" : enemyGod ? "roster-based" : "general")}</span>
+          </div>
+          ${matchupBuildOrderSourceControl(matchingOrders, selectedOrder)}
+          ${selectedOrder ? savedMatchupBuildOrderMarkup(selectedOrder) : suggestedMatchupBuildOrderMarkup(steps)}
+        </section>
+        <section class="matchup-card">
+          <div class="matchup-card-heading">
+            <h3>Counter core</h3>
+            <span>${topCounters.length ? `${topCounters.length} picks` : "pending"}</span>
+          </div>
+          <div class="matchup-counter-list">
+            ${topCounters.length ? topCounters.map(matchupCounterButton).join("") : `<p class="muted">Select an enemy god or unit to generate counter picks for this age.</p>`}
+          </div>
+        </section>
+        <section class="matchup-card">
+          <div class="matchup-card-heading">
+            <h3>Watch list</h3>
+            <span>${watchItems.length} checks</span>
+          </div>
+          <div class="watch-list">
+            ${watchItems.map((item) => tag(item, "blue")).join("")}
+          </div>
+        </section>
+      </div>
+    `;
+
+    Array.from(els.matchupBrief.querySelectorAll("[data-unit-id]")).forEach((button) => {
+      button.addEventListener("click", () => selectUnit(button.dataset.unitId, true));
+    });
+  }
+
+  function handleMatchupBuildOrderChange(event) {
+    const select = event.target.closest("[data-matchup-build-select]");
+    if (!select) return;
+    state.matchupBuildOrderId = select.value || "__suggested";
+    localStorage.setItem("aom:matchupBuildOrder", state.matchupBuildOrderId);
+    renderCounters();
+  }
+
+  function handleMatchupBuildOrderClick(event) {
+    const editButton = event.target.closest("[data-matchup-build-edit]");
+    if (!editButton) return;
+    const order = state.buildOrders.find((candidate) => candidate.id === editButton.dataset.matchupBuildEdit);
+    if (!order) return;
+    state.buildOrderId = order.id;
+    localStorage.setItem("aom:selectedBuildOrder", state.buildOrderId);
+    state.buildOrderStatus = "Editing build order from Matchup.";
+    renderBuildOrders();
+    navigateTo("build-order-view");
+  }
+
+  function matchingBuildOrdersForMatchup(god, enemyGod) {
+    return state.buildOrders
+      .filter((order) => order.godId === god.id)
+      .filter((order) => order.enemyGodId === "all" || !enemyGod || order.enemyGodId === enemyGod.id)
+      .sort((a, b) => buildOrderMatchScore(b, enemyGod) - buildOrderMatchScore(a, enemyGod) || sortBuildOrders(a, b));
+  }
+
+  function buildOrderMatchScore(order, enemyGod) {
+    let score = 0;
+    if (enemyGod && order.enemyGodId === enemyGod.id) score += 20;
+    if (order.enemyGodId === "all") score += 5;
+    if (order.age === state.age) score += 8;
+    if (order.age === "all") score += 3;
+    return score;
+  }
+
+  function selectedMatchupBuildOrder(matchingOrders) {
+    if (state.matchupBuildOrderId === "__suggested") return null;
+    const order = matchingOrders.find((candidate) => candidate.id === state.matchupBuildOrderId);
+    if (order) return order;
+    state.matchupBuildOrderId = "__suggested";
+    localStorage.setItem("aom:matchupBuildOrder", state.matchupBuildOrderId);
+    return null;
+  }
+
+  function matchupBuildOrderSourceControl(matchingOrders, selectedOrder) {
+    const options = [
+      `<option value="__suggested"${selectedOrder ? "" : " selected"}>Suggested plan</option>`,
+      ...matchingOrders.map((order) => {
+        const enemyLabel = order.enemyGodId === "all" ? "Any enemy" : godById.get(order.enemyGodId)?.name || "Unknown enemy";
+        const selected = selectedOrder?.id === order.id ? " selected" : "";
+        return `<option value="${escapeAttribute(order.id)}"${selected}>${escapeHtml(order.title)} (${escapeHtml(enemyLabel)})</option>`;
+      }),
+    ].join("");
+
+    return `
+      <div class="matchup-build-source">
+        <label>
+          <span>Build order source</span>
+          <select data-matchup-build-select>${options}</select>
+        </label>
+        ${
+          selectedOrder
+            ? `<button class="secondary-button" type="button" data-matchup-build-edit="${escapeAttribute(selectedOrder.id)}">Edit build</button>`
+            : `<a class="secondary-button" href="#build-order-view">Create build</a>`
+        }
+      </div>
+    `;
+  }
+
+  function suggestedMatchupBuildOrderMarkup(steps) {
+    return `
+      <ol class="matchup-build-step-list">
+        ${steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}
+      </ol>
+    `;
+  }
+
+  function savedMatchupBuildOrderMarkup(order) {
+    const author = order.author ? `By ${order.author}` : "";
+    const meta = unique([order.age === "all" ? "Flexible age" : order.age, order.patch, author]);
+    return `
+      <div class="matchup-saved-build">
+        <div class="matchup-saved-build-title">
+          <strong>${escapeHtml(order.title)}</strong>
+          <span>${meta.map((item) => tag(item, "blue")).join("")}</span>
+        </div>
+        ${order.tags.length ? `<div class="meta-line">${order.tags.map((item) => tag(item, "green")).join("")}</div>` : ""}
+        ${order.goals.length ? `
+          <div class="matchup-build-subsection">
+            <h4>Goals</h4>
+            <ul class="matchup-build-goal-list">
+              ${order.goals.map((goal) => `<li><strong>${escapeHtml(goal.time || "Any time")}</strong><span>${escapeHtml(goal.text)}</span></li>`).join("")}
+            </ul>
+          </div>
+        ` : ""}
+        <div class="matchup-build-subsection">
+          <h4>Steps</h4>
+          ${
+            order.steps.length
+              ? `<ol class="matchup-build-step-list saved">${order.steps.map(savedMatchupBuildStep).join("")}</ol>`
+              : `<p class="muted">No steps are saved in this build order yet.</p>`
+          }
+        </div>
+        ${order.notes ? `<div class="matchup-build-notes"><h4>Notes</h4><p>${escapeHtml(order.notes)}</p></div>` : ""}
+      </div>
+    `;
+  }
+
+  function savedMatchupBuildStep(step) {
+    return `
+      <li>
+        <div class="matchup-build-step-heading">
+          <strong>${escapeHtml(step.time || "Any time")}</strong>
+          <span>${escapeHtml(step.action || "Untitled step")}</span>
+        </div>
+        ${step.notes ? `<p>${escapeHtml(step.notes)}</p>` : ""}
+      </li>
+    `;
+  }
+
+  function matchupGodPill(god, subtitle) {
+    return `
+      <span class="matchup-god-pill">
+        ${iconMarkup("gods", god, "tiny")}
+        <span>
+          <strong>${escapeHtml(god.name)}</strong>
+          <small>${escapeHtml(subtitle)}</small>
+        </span>
+      </span>
+    `;
+  }
+
+  function matchupEmptyPill(title, subtitle) {
+    return `
+      <span class="matchup-god-pill muted-pill">
+        <span class="entity-icon tiny missing"><span class="icon-fallback">?</span></span>
+        <span>
+          <strong>${escapeHtml(title)}</strong>
+          <small>${escapeHtml(subtitle)}</small>
+        </span>
+      </span>
+    `;
+  }
+
+  function matchupCounterButton(result) {
+    const unit = result.unit;
+    return `
+      <button class="matchup-counter-button" type="button" data-unit-id="${escapeAttribute(unit.id)}">
+        ${iconMarkup("units", unit, "tiny")}
+        <span>
+          <strong>${escapeHtml(unit.name)}</strong>
+          <small>${escapeHtml(result.confidence)} fit / ${escapeHtml(unit.age)} / ${escapeHtml(unit.building)}</small>
+        </span>
+      </button>
+    `;
+  }
+
+  function enemyThreatProfile(enemyGod) {
+    if (!enemyGod) return [];
+    const units = enemyLookupUnits(enemyGod);
+    const profiles = data.counterProfiles.filter((profile) => !["building", "hero"].includes(profile.id));
+
+    return profiles
+      .map((profile) => {
+        const matchingUnits = units.filter((unit) => profile.tags.some((tagName) => unit.classes.includes(tagName)));
+        return {
+          id: profile.id,
+          name: profile.name,
+          tags: profile.tags,
+          count: matchingUnits.length,
+        };
+      })
+      .filter((profile) => profile.count > 0)
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+      .slice(0, 4);
+  }
+
+  function inferredTargetFromThreats(threats) {
+    const threat = threats[0];
+    if (!threat) return null;
+    const profile = profileById.get(threat.id);
+    return {
+      name: profile?.name || threat.name,
+      tags: profile?.tags || threat.tags,
+      unit: null,
+      inferred: true,
+    };
+  }
+
+  function matchupWatchItems(enemyGod, target, threats) {
+    if (target) {
+      return unique([
+        ...target.tags.slice(0, 4),
+        target.unit?.building,
+        target.unit?.age,
+      ]).slice(0, 6);
+    }
+
+    if (threats.length) {
+      return threats.map((threat) => `${threat.name}: ${threat.count}`);
+    }
+
+    return enemyGod
+      ? ["first production building", "Temple timing", "second military building"]
+      : ["enemy god", "first unit line", "current age"];
+  }
+
+  function buildOrderSteps(god, enemyGod, target, planTarget, counterResults, threats) {
+    const counterUnits = counterResults.map((result) => result.unit);
+    const primaryCounter = counterUnits[0];
+    const targetLabel = target
+      ? target.name
+      : planTarget
+        ? `${planTarget.name.toLowerCase()} pressure`
+        : "the first scouted unit line";
+    const enemyLabel = enemyGod ? enemyGod.name : "the opponent";
+    const productionBuilding = primaryCounter?.building || fallbackProductionBuilding(god, planTarget);
+    const counterNames = counterUnits.length ? formatList(counterUnits.map((unit) => unit.name)) : "your best confirmed counter";
+
+    return [
+      pantheonOpeningStep(god),
+      `Scout ${enemyLabel}'s first production building and confirm whether the threat is ${targetLabel}.`,
+      `Bias resources toward ${productionBuilding}; start ${counterNames} before adding a second army line.`,
+      upgradeTimingStep(primaryCounter, god),
+      transitionTimingStep(threats, target),
+    ];
+  }
+
+  function pantheonOpeningStep(god) {
+    const special = normalize(god.name) === "tsukuyomi"
+      ? " Fold in safe technology researches when possible so Bushido XP advances with the opening."
+      : "";
+
+    switch (god.pantheon) {
+      case "greeks":
+        return `Open on stable food and wood, scout early, then choose the first military building around the scouted threat.${special}`;
+      case "egyptians":
+        return "Open around Pharaoh empowerment and safe drop sites; keep Barracks counter infantry available before committing to a Migdol plan.";
+      case "norse":
+        return "Open actively with flexible infantry builders, but only forward-build after scouting confirms the enemy timing.";
+      case "atlanteans":
+        return "Open with Citizen efficiency and Oracle vision; keep hero promotion resources available if Temple units appear.";
+      case "chinese":
+        return "Open with a protected economy and early hero support; pick Military Camp or Machine Workshop from the enemy unit tags.";
+      case "japanese":
+        return `Open with Shrine value, Miko safety, and a fast read on whether Guardhouse, Stable, or Dojo is needed first.${special}`;
+      case "aztecs":
+        return "Open conservatively until the imported roster is verified; use the scouted unit class to choose the first counter line.";
+      default:
+        return "Open with scouting first, then commit production only after the first enemy unit line is known.";
+    }
+  }
+
+  function fallbackProductionBuilding(god, target) {
+    const targetTags = new Set(target?.tags || []);
+    const buildings = availableBuildings(god);
+    const named = (name) => buildings.find((building) => normalize(building.name) === normalize(name))?.name;
+
+    if (targetTags.has("ship")) return named("Dock") || "Dock";
+    if (targetTags.has("myth")) return named("Temple") || "hero access";
+    const production = buildings.find((building) => building.type === "production" && building.produces.length);
+    return production?.name || "your first military building";
+  }
+
+  function upgradeTimingStep(unit, god) {
+    if (!unit) {
+      return "Delay military upgrades until the enemy line is confirmed; spend first on economy and the counter building.";
+    }
+
+    const group = availableUpgradeGroupsForUnit(unit, god).find((candidate) => candidate.upgrades.length);
+    const upgrades = group?.upgrades.slice(0, 2).map((upgrade) => upgrade.name) || [];
+    if (!upgrades.length) {
+      return `Keep resources in ${unit.name} count first; no current-age upgrade is mapped for this unit yet.`;
+    }
+
+    return `When unit count is stable, check ${group.building.name} for ${formatList(upgrades)}.`;
+  }
+
+  function transitionTimingStep(threats, target) {
+    if (state.age === "all") {
+      return "During play, switch the age filter as you advance so the counter list stays timing-correct.";
+    }
+
+    if (target?.unit && ageOrder.get(target.unit.age) > ageOrder.get(state.age)) {
+      return `${target.unit.name} is later than ${state.age}; use this as a transition warning, not an immediate panic response.`;
+    }
+
+    const topThreat = threats[0]?.name;
+    return topThreat
+      ? `Before aging again, verify whether the opponent is staying on ${topThreat.toLowerCase()} or tech-switching.`
+      : "Before aging again, re-scout production so the next building answers the real switch.";
   }
 
   function renderEnemyUnitPicker(enemyGod, query, target) {
@@ -1099,7 +1562,9 @@
   }
 
   function enemyLookupUnits(enemyGod = selectedEnemyGod()) {
-    const units = enemyGod ? availableUnits(enemyGod, "all") : data.units;
+    const units = enemyGod
+      ? availableUnits(enemyGod, "all")
+      : data.units.filter((unit) => availableInCurrentAge(unit));
     return units.filter((unit) => !unit.classes.includes("economic"));
   }
 
@@ -1226,26 +1691,551 @@
     `;
   }
 
-  function availableBuildings(god) {
-    return data.buildings.filter((building) => hasPantheon(building, god.pantheon));
+  async function loadBuildOrders() {
+    try {
+      buildOrderDb = await openBuildOrderDb();
+      state.buildOrders = (await getAllBuildOrdersFromDb()).map((order) =>
+        normalizeBuildOrder(order, { preserveId: true, preserveTimestamps: true }),
+      );
+      state.buildOrderStorageMode = "IndexedDB";
+      state.buildOrderStatus = "Build orders are saved locally in this browser.";
+    } catch (error) {
+      buildOrderDb = null;
+      state.buildOrderStorageMode = "localStorage";
+      state.buildOrders = readLocalBuildOrders().map((order) => normalizeBuildOrder(order, { preserveId: true, preserveTimestamps: true }));
+      state.buildOrderStatus = "IndexedDB was unavailable, so this browser is using localStorage fallback.";
+    }
+
+    state.buildOrdersLoaded = true;
+    state.buildOrders.sort(sortBuildOrders);
+    if (state.buildOrderId && !state.buildOrders.some((order) => order.id === state.buildOrderId)) {
+      state.buildOrderId = "";
+      localStorage.removeItem("aom:selectedBuildOrder");
+    }
+    if (!state.buildOrderId && state.buildOrders.length) {
+      state.buildOrderId = state.buildOrders[0].id;
+      localStorage.setItem("aom:selectedBuildOrder", state.buildOrderId);
+    }
+    renderBuildOrders();
+    renderCounters();
   }
 
-  function availableUnits(god, mode = state.mode) {
+  function openBuildOrderDb() {
+    return new Promise((resolve, reject) => {
+      if (!window.indexedDB) {
+        reject(new Error("IndexedDB is not available."));
+        return;
+      }
+
+      const request = window.indexedDB.open(buildOrderDbName, 1);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(buildOrderStoreName)) {
+          const store = db.createObjectStore(buildOrderStoreName, { keyPath: "id" });
+          store.createIndex("updatedAt", "updatedAt");
+          store.createIndex("godId", "godId");
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error("Could not open build order database."));
+    });
+  }
+
+  function getAllBuildOrdersFromDb() {
+    return new Promise((resolve, reject) => {
+      const request = buildOrderStore("readonly").getAll();
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error || new Error("Could not load build orders."));
+    });
+  }
+
+  function putBuildOrderInDb(order) {
+    return new Promise((resolve, reject) => {
+      const request = buildOrderStore("readwrite").put(order);
+      request.onsuccess = () => resolve(order);
+      request.onerror = () => reject(request.error || new Error("Could not save build order."));
+    });
+  }
+
+  function deleteBuildOrderFromDb(id) {
+    return new Promise((resolve, reject) => {
+      const request = buildOrderStore("readwrite").delete(id);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error || new Error("Could not delete build order."));
+    });
+  }
+
+  function buildOrderStore(mode) {
+    return buildOrderDb.transaction(buildOrderStoreName, mode).objectStore(buildOrderStoreName);
+  }
+
+  function readLocalBuildOrders() {
+    try {
+      const parsed = JSON.parse(localStorage.getItem("aom:buildOrders") || "[]");
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  function writeLocalBuildOrders() {
+    localStorage.setItem("aom:buildOrders", JSON.stringify(state.buildOrders));
+  }
+
+  async function persistBuildOrder(order) {
+    if (state.buildOrderStorageMode === "IndexedDB" && buildOrderDb) {
+      await putBuildOrderInDb(order);
+    } else {
+      writeLocalBuildOrders();
+    }
+  }
+
+  async function removePersistedBuildOrder(id) {
+    if (state.buildOrderStorageMode === "IndexedDB" && buildOrderDb) {
+      await deleteBuildOrderFromDb(id);
+    } else {
+      writeLocalBuildOrders();
+    }
+  }
+
+  function renderBuildOrders(draft = null) {
+    const order = draft || selectedBuildOrder() || defaultBuildOrderDraft();
+    els.buildOrderCount.textContent = state.buildOrdersLoaded ? `${state.buildOrders.length} saved` : "Loading";
+    els.buildOrderList.innerHTML = state.buildOrdersLoaded
+      ? state.buildOrders.map(buildOrderListItem).join("") || empty("No saved build orders yet.")
+      : empty("Loading saved build orders.");
+    renderBuildOrderForm(order);
+    els.buildOrderStatus.textContent = state.buildOrderStatus;
+  }
+
+  function buildOrderListItem(order) {
+    const god = godById.get(order.godId);
+    const enemy = order.enemyGodId === "all" ? "Any enemy" : godById.get(order.enemyGodId)?.name || "Unknown enemy";
+    const isActive = order.id === state.buildOrderId;
+    return `
+      <button class="build-order-list-item ${isActive ? "active" : ""}" type="button" data-build-order-id="${escapeAttribute(order.id)}">
+        <span class="build-order-list-title">${escapeHtml(order.title)}</span>
+        <span>${escapeHtml(god?.name || "Unknown god")} vs ${escapeHtml(enemy)}</span>
+        <span>${escapeHtml(order.goals.length)} goals / ${escapeHtml(order.steps.length)} steps</span>
+        <span class="meta-line">${order.tags.slice(0, 3).map((item) => tag(item, "blue")).join("")}</span>
+      </button>
+    `;
+  }
+
+  function renderBuildOrderForm(order) {
+    const tags = Array.isArray(order.tags) ? order.tags : normalizeBuildOrderTags(order.tags);
+    const goals = Array.isArray(order.goals) ? order.goals : [];
+    const steps = Array.isArray(order.steps) ? order.steps : [];
+    els.buildOrderTitle.value = order.title || "";
+    els.buildOrderAuthor.value = order.author || "";
+    els.buildOrderGod.value = godById.has(order.godId) ? order.godId : state.godId;
+    els.buildOrderEnemy.value = order.enemyGodId === "all" || godById.has(order.enemyGodId) ? order.enemyGodId : "all";
+    els.buildOrderAge.value = order.age === "all" || ageOrder.has(order.age) ? order.age : "all";
+    els.buildOrderPatch.value = order.patch || "";
+    els.buildOrderTags.value = tags.join(", ");
+    els.buildOrderNotes.value = order.notes || "";
+    els.buildOrderGoals.innerHTML = goals.map(buildOrderGoalRow).join("") || buildOrderGoalRow({ time: "", text: "" }, 0);
+    els.buildOrderSteps.innerHTML = steps.map(buildOrderStepRow).join("") || buildOrderStepRow({ time: "", action: "", notes: "" }, 0);
+    els.buildOrderDelete.disabled = !state.buildOrderId || !selectedBuildOrder();
+  }
+
+  function buildOrderGoalRow(goal, index) {
+    return `
+      <div class="build-order-row" data-goal-index="${index}">
+        <label>
+          <span>Time</span>
+          <input type="text" data-build-field="goal-time" value="${escapeAttribute(goal.time || "")}" placeholder="04:30">
+        </label>
+        <label>
+          <span>Goal</span>
+          <input type="text" data-build-field="goal-text" value="${escapeAttribute(goal.text || "")}" placeholder="Start researching Classical Age">
+        </label>
+        <button class="icon-action-button danger" type="button" data-build-action="remove-goal" data-index="${index}" aria-label="Remove goal">x</button>
+      </div>
+    `;
+  }
+
+  function buildOrderStepRow(step, index) {
+    return `
+      <div class="build-order-row build-order-step-row" data-step-index="${index}">
+        <label>
+          <span>Time</span>
+          <input type="text" data-build-field="step-time" value="${escapeAttribute(step.time || "")}" placeholder="00:00">
+        </label>
+        <label>
+          <span>Action</span>
+          <input type="text" data-build-field="step-action" value="${escapeAttribute(step.action || "")}" placeholder="Queue workers">
+        </label>
+        <label class="step-notes-field">
+          <span>Notes</span>
+          <textarea data-build-field="step-notes" rows="2" placeholder="Scouting or matchup note">${escapeHtml(step.notes || "")}</textarea>
+        </label>
+        <button class="icon-action-button danger" type="button" data-build-action="remove-step" data-index="${index}" aria-label="Remove step">x</button>
+      </div>
+    `;
+  }
+
+  function handleBuildOrderListClick(event) {
+    const button = event.target.closest("[data-build-order-id]");
+    if (!button) return;
+    state.buildOrderId = button.dataset.buildOrderId;
+    localStorage.setItem("aom:selectedBuildOrder", state.buildOrderId);
+    state.buildOrderStatus = "Loaded saved build order.";
+    renderBuildOrders();
+  }
+
+  function handleBuildOrderFormClick(event) {
+    const button = event.target.closest("[data-build-action]");
+    if (!button) return;
+    const draft = buildOrderDraftFromForm();
+    const index = Number(button.dataset.index);
+
+    if (button.dataset.buildAction === "add-goal") {
+      draft.goals.push({ time: "", text: "" });
+    }
+    if (button.dataset.buildAction === "remove-goal") {
+      draft.goals.splice(index, 1);
+    }
+    if (button.dataset.buildAction === "add-step") {
+      draft.steps.push({ time: "", action: "", notes: "" });
+    }
+    if (button.dataset.buildAction === "remove-step") {
+      draft.steps.splice(index, 1);
+    }
+
+    renderBuildOrderForm(draft);
+  }
+
+  async function saveBuildOrderFromForm(event) {
+    event.preventDefault();
+    const existing = selectedBuildOrder();
+    const order = normalizeBuildOrder(buildOrderDraftFromForm(), { existing, preserveId: Boolean(existing) });
+    upsertBuildOrderState(order);
+
+    try {
+      await persistBuildOrder(order);
+      state.buildOrderId = order.id;
+      localStorage.setItem("aom:selectedBuildOrder", state.buildOrderId);
+      state.buildOrderStatus = `Saved "${order.title}" locally using ${state.buildOrderStorageMode}.`;
+    } catch (error) {
+      state.buildOrderStatus = `Save failed: ${error.message || error}`;
+    }
+
+    renderBuildOrders();
+    renderCounters();
+  }
+
+  async function deleteSelectedBuildOrder() {
+    const order = selectedBuildOrder();
+    if (!order) {
+      state.buildOrderStatus = "No saved build order is selected.";
+      renderBuildOrders(buildOrderDraftFromForm());
+      return;
+    }
+
+    state.buildOrders = state.buildOrders.filter((item) => item.id !== order.id);
+    try {
+      await removePersistedBuildOrder(order.id);
+      state.buildOrderId = state.buildOrders[0]?.id || "";
+      if (state.buildOrderId) {
+        localStorage.setItem("aom:selectedBuildOrder", state.buildOrderId);
+      } else {
+        localStorage.removeItem("aom:selectedBuildOrder");
+      }
+      state.buildOrderStatus = `Deleted "${order.title}".`;
+    } catch (error) {
+      state.buildOrderStatus = `Delete failed: ${error.message || error}`;
+    }
+
+    renderBuildOrders();
+    renderCounters();
+  }
+
+  function exportCurrentBuildOrder() {
+    const draft = normalizeBuildOrder(buildOrderDraftFromForm(), { existing: selectedBuildOrder(), preserveId: false });
+    const code = encodeBuildOrderCode(buildOrderSharePrefix, {
+      type: "buildOrder",
+      version: 1,
+      order: exportableBuildOrder(draft),
+    });
+    els.buildOrderShareCode.value = code;
+    state.buildOrderStatus = "Export code created for the current editor contents.";
+    renderBuildOrders(draft);
+    els.buildOrderShareCode.value = code;
+  }
+
+  function exportBuildOrderLibrary() {
+    const code = encodeBuildOrderCode(buildOrderLibraryPrefix, {
+      type: "buildOrderLibrary",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      orders: state.buildOrders.map(exportableBuildOrder),
+    });
+    els.buildOrderBackupCode.value = code;
+    state.buildOrderStatus = `Backup code created for ${state.buildOrders.length} build orders.`;
+    renderBuildOrders(buildOrderDraftFromForm());
+    els.buildOrderBackupCode.value = code;
+  }
+
+  async function importBuildOrderCode() {
+    try {
+      const decoded = decodeBuildOrderCode(els.buildOrderShareCode.value);
+      const orders = decoded.type === "library" ? decoded.payload.orders || [] : [decoded.payload.order];
+      const imported = [];
+      for (const rawOrder of orders) {
+        const order = normalizeBuildOrder(rawOrder, { forceNewId: true });
+        upsertBuildOrderState(order);
+        await persistBuildOrder(order);
+        imported.push(order);
+      }
+      state.buildOrderId = imported[0]?.id || state.buildOrderId;
+      if (state.buildOrderId) localStorage.setItem("aom:selectedBuildOrder", state.buildOrderId);
+      state.buildOrderStatus = `Imported ${imported.length} build order${imported.length === 1 ? "" : "s"}.`;
+    } catch (error) {
+      state.buildOrderStatus = `Import failed: ${error.message || error}`;
+    }
+    renderBuildOrders();
+    renderCounters();
+  }
+
+  async function importBuildOrderLibraryCode() {
+    try {
+      const decoded = decodeBuildOrderCode(els.buildOrderBackupCode.value);
+      if (decoded.type !== "library") throw new Error("That is not a library backup code.");
+      const imported = [];
+      for (const rawOrder of decoded.payload.orders || []) {
+        const order = normalizeBuildOrder(rawOrder, { forceNewId: true });
+        upsertBuildOrderState(order);
+        await persistBuildOrder(order);
+        imported.push(order);
+      }
+      state.buildOrderId = imported[0]?.id || state.buildOrderId;
+      if (state.buildOrderId) localStorage.setItem("aom:selectedBuildOrder", state.buildOrderId);
+      state.buildOrderStatus = `Imported ${imported.length} build order${imported.length === 1 ? "" : "s"} from backup.`;
+    } catch (error) {
+      state.buildOrderStatus = `Backup import failed: ${error.message || error}`;
+    }
+    renderBuildOrders();
+    renderCounters();
+  }
+
+  function buildOrderDraftFromForm() {
+    return {
+      id: selectedBuildOrder()?.id || "",
+      title: els.buildOrderTitle.value,
+      author: els.buildOrderAuthor.value,
+      godId: els.buildOrderGod.value,
+      enemyGodId: els.buildOrderEnemy.value,
+      age: els.buildOrderAge.value,
+      patch: els.buildOrderPatch.value,
+      tags: normalizeBuildOrderTags(els.buildOrderTags.value),
+      goals: Array.from(els.buildOrderGoals.querySelectorAll("[data-goal-index]")).map((row) => ({
+        time: row.querySelector('[data-build-field="goal-time"]')?.value || "",
+        text: row.querySelector('[data-build-field="goal-text"]')?.value || "",
+      })),
+      steps: Array.from(els.buildOrderSteps.querySelectorAll("[data-step-index]")).map((row) => ({
+        time: row.querySelector('[data-build-field="step-time"]')?.value || "",
+        action: row.querySelector('[data-build-field="step-action"]')?.value || "",
+        notes: row.querySelector('[data-build-field="step-notes"]')?.value || "",
+      })),
+      notes: els.buildOrderNotes.value,
+    };
+  }
+
+  function defaultBuildOrderDraft() {
+    return {
+      id: "",
+      version: 1,
+      title: "",
+      author: "",
+      godId: state.godId,
+      enemyGodId: state.enemyGodId,
+      age: state.age,
+      patch: "",
+      tags: [],
+      goals: [{ time: "04:30", text: "Start researching Classical Age" }],
+      steps: [
+        { time: "00:00", action: "Queue workers", notes: "Keep production constant." },
+        { time: "02:30", action: "Scout enemy production", notes: "Adjust the first military building to the scouted unit line." },
+      ],
+      notes: "",
+    };
+  }
+
+  function normalizeBuildOrder(rawOrder = {}, options = {}) {
+    const now = new Date().toISOString();
+    const existing = options.existing || null;
+    const id = options.forceNewId
+      ? newBuildOrderId()
+      : options.preserveId && (rawOrder.id || existing?.id)
+        ? String(rawOrder.id || existing.id)
+        : newBuildOrderId();
+    const godId = godById.has(rawOrder.godId) ? rawOrder.godId : state.godId;
+    const enemyGodId = rawOrder.enemyGodId === "all" || godById.has(rawOrder.enemyGodId) ? rawOrder.enemyGodId : "all";
+    const age = rawOrder.age === "all" || ageOrder.has(rawOrder.age) ? rawOrder.age : "all";
+
+    return {
+      id,
+      version: 1,
+      title: cleanText(rawOrder.title, 90) || "Untitled build order",
+      author: cleanText(rawOrder.author, 60),
+      godId,
+      enemyGodId,
+      age,
+      patch: cleanText(rawOrder.patch, 60),
+      tags: normalizeBuildOrderTags(rawOrder.tags),
+      goals: normalizeBuildOrderGoals(rawOrder.goals),
+      steps: normalizeBuildOrderSteps(rawOrder.steps),
+      notes: cleanText(rawOrder.notes, 1200),
+      createdAt: existing?.createdAt || cleanText(rawOrder.createdAt, 40) || now,
+      updatedAt: options.preserveTimestamps ? cleanText(rawOrder.updatedAt, 40) || now : now,
+    };
+  }
+
+  function normalizeBuildOrderTags(value) {
+    const source = Array.isArray(value) ? value : String(value || "").split(",");
+    return unique(source.map((item) => cleanText(item, 32)).filter(Boolean)).slice(0, 10);
+  }
+
+  function normalizeBuildOrderGoals(goals) {
+    const rows = Array.isArray(goals) ? goals : [];
+    return rows
+      .map((goal) => ({
+        time: cleanText(goal?.time, 12),
+        text: cleanText(goal?.text, 180),
+      }))
+      .filter((goal) => goal.time || goal.text)
+      .slice(0, 30);
+  }
+
+  function normalizeBuildOrderSteps(steps) {
+    const rows = Array.isArray(steps) ? steps : [];
+    return rows
+      .map((step) => ({
+        time: cleanText(step?.time, 12),
+        action: cleanText(step?.action, 220),
+        notes: cleanText(step?.notes, 500),
+      }))
+      .filter((step) => step.time || step.action || step.notes)
+      .slice(0, 80);
+  }
+
+  function exportableBuildOrder(order) {
+    return {
+      version: 1,
+      title: order.title,
+      author: order.author,
+      godId: order.godId,
+      enemyGodId: order.enemyGodId,
+      age: order.age,
+      patch: order.patch,
+      tags: order.tags,
+      goals: order.goals,
+      steps: order.steps,
+      notes: order.notes,
+    };
+  }
+
+  function selectedBuildOrder() {
+    return state.buildOrders.find((order) => order.id === state.buildOrderId) || null;
+  }
+
+  function upsertBuildOrderState(order) {
+    const existingIndex = state.buildOrders.findIndex((item) => item.id === order.id);
+    if (existingIndex >= 0) {
+      state.buildOrders[existingIndex] = order;
+    } else {
+      state.buildOrders.unshift(order);
+    }
+    state.buildOrders.sort(sortBuildOrders);
+    if (state.buildOrderStorageMode === "localStorage") writeLocalBuildOrders();
+  }
+
+  function sortBuildOrders(a, b) {
+    return String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")) || a.title.localeCompare(b.title);
+  }
+
+  function encodeBuildOrderCode(prefix, payload) {
+    return `${prefix}${base64UrlEncode(JSON.stringify(payload))}`;
+  }
+
+  function decodeBuildOrderCode(code) {
+    const value = String(code || "").trim();
+    const type = value.startsWith(buildOrderLibraryPrefix)
+      ? "library"
+      : value.startsWith(buildOrderSharePrefix)
+        ? "order"
+        : "";
+    if (!type) throw new Error("Code must start with AOMBO1. or AOMBOLIB1.");
+    const prefix = type === "library" ? buildOrderLibraryPrefix : buildOrderSharePrefix;
+    const payload = JSON.parse(base64UrlDecode(value.slice(prefix.length)));
+    if (type === "order" && payload?.type !== "buildOrder") throw new Error("Share code payload is not a build order.");
+    if (type === "library" && payload?.type !== "buildOrderLibrary") throw new Error("Backup code payload is not a build order library.");
+    return { type, payload };
+  }
+
+  function base64UrlEncode(text) {
+    const bytes = new TextEncoder().encode(text);
+    let binary = "";
+    bytes.forEach((byte) => {
+      binary += String.fromCharCode(byte);
+    });
+    return window.btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+  }
+
+  function base64UrlDecode(value) {
+    const base64 = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+    const binary = window.atob(padded);
+    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+  }
+
+  function newBuildOrderId() {
+    if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+    return `bo-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+  }
+
+  function cleanText(value, maxLength) {
+    return String(value || "").trim().slice(0, maxLength);
+  }
+
+  function currentAgeLabel() {
+    return state.age === "all" ? "All ages" : `${state.age} Age`;
+  }
+
+  function availableInCurrentAge(entity, ageLimit = state.age) {
+    if (ageLimit === "all") return true;
+    const limitIndex = ageOrder.get(ageLimit);
+    const entityIndex = ageOrder.get(entity.age);
+    if (limitIndex === undefined || entityIndex === undefined) return true;
+    return entityIndex <= limitIndex;
+  }
+
+  function availableBuildings(god, ageLimit = state.age) {
+    return data.buildings
+      .filter((building) => hasPantheon(building, god.pantheon))
+      .filter((building) => availableInCurrentAge(building, ageLimit));
+  }
+
+  function availableUnits(god, mode = state.mode, ageLimit = state.age) {
     return data.units.filter((unit) => {
       if (!unit.pantheons.includes(god.pantheon) && !unit.pantheons.includes("all")) return false;
       if (unit.availability?.majorGods && !unit.availability.majorGods.includes(god.id)) return false;
       if (unit.availability?.minorGod && !minorGodAvailable(god, unit.availability.minorGod)) return false;
       if (mode === "core" && (unit.availability?.minorGod || unit.availability?.conditional)) return false;
+      if (!availableInCurrentAge(unit, ageLimit)) return false;
       return true;
     });
   }
 
-  function availableTechnologies(god, mode = state.mode) {
+  function availableTechnologies(god, mode = state.mode, ageLimit = state.age) {
     return data.technologies.filter((tech) => {
       if (tech.pantheons && !tech.pantheons.includes("all") && !tech.pantheons.includes(god.pantheon)) return false;
       const techGod = tech.availability?.god;
       if (techGod && !majorOrMinorGodAvailable(god, techGod)) return false;
       if (mode === "core" && techGod && normalize(techGod) !== normalize(god.name)) return false;
+      if (!availableInCurrentAge(tech, ageLimit)) return false;
       return true;
     });
   }
@@ -1461,6 +2451,13 @@
       map.get(key).push(item);
     });
     return map;
+  }
+
+  function formatList(items) {
+    const values = unique(items);
+    if (values.length <= 1) return values[0] || "";
+    if (values.length === 2) return `${values[0]} and ${values[1]}`;
+    return `${values.slice(0, -1).join(", ")}, and ${values[values.length - 1]}`;
   }
 
   function unique(items) {
