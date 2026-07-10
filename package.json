@@ -1,0 +1,21 @@
+{
+  "name": "aom-companion",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local Age of Mythology companion app.",
+  "scripts": {
+    "check": "node --check data/aom-data.js && node --check data/generated/aom-production.js && node --check data/generated/aom-technology-supplement.js && node --check data/generated/aom-ui-icons.js && node --check src/app.js && node --check tools/runtime-data.mjs && node --check tools/import-fandom.mjs && node --check tools/import-icons.mjs && node --check tools/import-ui-icons.mjs && node --check tools/import-details.mjs && node --check tools/import-technology-supplement.mjs && node --check tools/build-production-supplement.mjs && node --check tools/validate-data.mjs && node tools/validate-data.mjs",
+    "build:production": "node tools/build-production-supplement.mjs",
+    "validate:data": "node tools/validate-data.mjs",
+    "import:wiki": "node tools/import-fandom.mjs",
+    "import:wiki:dry": "node tools/import-fandom.mjs --dry-run",
+    "import:icons": "node tools/import-icons.mjs",
+    "import:icons:dry": "node tools/import-icons.mjs --dry-run",
+    "import:techs": "node tools/import-technology-supplement.mjs",
+    "import:techs:dry": "node tools/import-technology-supplement.mjs --dry-run",
+    "import:ui-icons": "node tools/import-ui-icons.mjs",
+    "import:ui-icons:dry": "node tools/import-ui-icons.mjs --dry-run",
+    "import:details": "node tools/import-details.mjs",
+    "import:details:dry": "node tools/import-details.mjs --dry-run"
+  }
+}

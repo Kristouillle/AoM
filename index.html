@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AoM Companion</title>
+    <link rel="stylesheet" href="./src/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Navigation">
+        <div class="brand">
+          <div class="brand-mark">AoM</div>
+          <div>
+            <h1>Companion</h1>
+            <p id="data-status">Local library</p>
+          </div>
+        </div>
+
+        <div class="sidebar-current" id="sidebar-current"></div>
+
+        <nav class="quick-nav" aria-label="Sections">
+          <a href="#home-view" data-view-link="home-view">Home</a>
+          <a href="#counter-view" data-view-link="counter-view">Counters</a>
+          <a href="#god-view" data-view-link="god-view">God</a>
+          <a href="#building-view" data-view-link="building-view">Buildings</a>
+          <a href="#unit-view" data-view-link="unit-view">Units</a>
+          <a href="#library-view" data-view-link="library-view">Library</a>
+        </nav>
+      </aside>
+
+      <main class="workspace">
+        <section class="topbar" aria-label="Summary">
+          <div>
+            <p class="eyebrow">Age of Mythology: Retold</p>
+            <h2 id="selected-title">God overview</h2>
+          </div>
+          <div class="topbar-actions">
+            <div class="stats-strip" id="stats-strip"></div>
+            <div class="mode-group mode-group-light" role="group" aria-label="Result filters">
+              <button class="mode-button active" type="button" data-mode="core">Core</button>
+              <button class="mode-button" type="button" data-mode="all">All options</button>
+            </div>
+          </div>
+        </section>
+
+        <section class="view-panel active" id="home-view">
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Home</p>
+                <h2>Select a god</h2>
+              </div>
+            </div>
+            <label class="field field-light">
+              <span>Search gods</span>
+              <input id="home-god-search" type="search" autocomplete="off" placeholder="Try Tsukuyomi, Zeus, Norse">
+            </label>
+            <div class="god-picker-grid" id="home-god-grid"></div>
+          </div>
+        </section>
+
+        <section class="view-panel" id="counter-view">
+          <div class="panel counter-panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Counter Finder</p>
+                <h2 id="counter-title">Pick an enemy unit</h2>
+              </div>
+              <span class="badge" id="counter-count">0 matches</span>
+            </div>
+            <div class="counter-controls">
+              <label class="field field-light">
+                <span>Enemy god</span>
+                <select id="enemy-god-select"></select>
+              </label>
+              <label class="field field-light">
+                <span>Enemy unit</span>
+                <input id="enemy-search" type="search" list="enemy-units" autocomplete="off" placeholder="Try cavalry, myth, archer">
+                <datalist id="enemy-units"></datalist>
+              </label>
+            </div>
+            <div class="enemy-unit-picker" id="enemy-unit-picker"></div>
+            <div class="target-summary" id="target-summary"></div>
+            <div class="result-list" id="counter-results"></div>
+          </div>
+        </section>
+
+        <section class="view-panel" id="god-view">
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Selected God</p>
+                <div class="entity-heading">
+                  <span id="god-portrait"></span>
+                  <h2 id="god-name">God</h2>
+                </div>
+              </div>
+              <span class="badge" id="pantheon-name">Pantheon</span>
+            </div>
+            <div class="god-facts" id="god-facts"></div>
+          </div>
+        </section>
+
+        <section class="view-panel" id="building-view">
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Production Tree</p>
+                <h2>Buildings</h2>
+              </div>
+              <span class="badge" id="building-count">0 buildings</span>
+            </div>
+            <div class="building-layout">
+              <div class="building-list" id="building-list"></div>
+              <div class="building-detail" id="building-detail"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view-panel" id="unit-view">
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Roster</p>
+                <h2>Units</h2>
+              </div>
+              <span class="badge" id="unit-count">0 units</span>
+            </div>
+            <div class="unit-browser">
+              <div class="unit-groups" id="unit-groups"></div>
+              <div class="unit-side-detail" id="unit-side-detail"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view-panel" id="library-view">
+          <div class="panel">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">Dictionary</p>
+                <h2>Library</h2>
+              </div>
+              <span class="badge" id="library-count">0 entries</span>
+            </div>
+            <label class="field field-light view-search">
+              <span>Search</span>
+              <input id="library-search" type="search" autocomplete="off" placeholder="Unit, god, building, tech">
+            </label>
+            <div class="library-results" id="library-results"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./data/aom-data.js"></script>
+    <script src="./data/generated/aom-production.js"></script>
+    <script src="./data/generated/aom-technology-supplement.js"></script>
+    <script src="./data/generated/aom-icons.js"></script>
+    <script src="./data/generated/aom-ui-icons.js"></script>
+    <script src="./data/generated/aom-details.js"></script>
+    <script src="./src/app.js"></script>
+  </body>
+</html>
