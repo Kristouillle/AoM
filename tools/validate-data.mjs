@@ -1,8 +1,14 @@
 import { loadRuntimeData, normalize } from "./runtime-data.mjs";
+import { readFile } from "node:fs/promises";
 
 const data = await loadRuntimeData();
 
 const failures = [];
+const iconManifestText = await readFile(new URL("../data/generated/aom-icons.js", import.meta.url), "utf8");
+
+if (/\uFFFD|\u00C3|\u00C5[\u0080-\u00BF\u0152\u0153\u0160\u0161\u0178]|\u00E2[\u0080-\u00BF]/u.test(iconManifestText)) {
+  failures.push("Icon manifest contains text that appears to be incorrectly encoded.");
+}
 
 assertProduced("tsukuyomi", "House", []);
 assertProduced("tsukuyomi", "Dock", ["Wasen", "Ramming Wasen", "Junkozosen", "Honengyo", "Umibōzu"]);

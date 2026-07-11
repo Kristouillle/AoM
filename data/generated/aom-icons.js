@@ -468,7 +468,7 @@ window.AOM_ICONS = {
     },
     "nuwa": {
       "src": "./assets/icons/gods/nuwa.png",
-      "label": "NÃ¼wa",
+      "label": "Nüwa",
       "source": "https://ageofempires.fandom.com/wiki/N%C3%BCwa",
       "imageSource": "https://static.wikia.nocookie.net/ageofempires/images/4/45/Nuwa_artwork_AoMR.png/revision/latest/scale-to-width-down/768?cb=20250204185423",
       "match": "Nuwa artwork AoMR",
@@ -484,7 +484,7 @@ window.AOM_ICONS = {
     },
     "xuannu": {
       "src": "./assets/icons/gods/xuannu.png",
-      "label": "XuannÃ¼",
+      "label": "Xuannü",
       "source": "https://ageofempires.fandom.com/wiki/Xuann%C3%BC",
       "imageSource": "https://static.wikia.nocookie.net/ageofempires/images/7/7b/Xuannu_artwork_AoMR.png/revision/latest/scale-to-width-down/768?cb=20250227214853",
       "match": "Xuannu artwork AoMR",
@@ -516,7 +516,7 @@ window.AOM_ICONS = {
     },
     "nuba": {
       "src": "./assets/icons/gods/nuba.png",
-      "label": "NÃ¼ba",
+      "label": "Nüba",
       "source": "https://ageofempires.fandom.com/wiki/N%C3%BCba",
       "imageSource": "https://static.wikia.nocookie.net/ageofempires/images/9/90/Nuba_artwork_AoMR.png/revision/latest/scale-to-width-down/768?cb=20250227215521",
       "match": "Nuba artwork AoMR",
@@ -596,7 +596,7 @@ window.AOM_ICONS = {
     },
     "inari-okami": {
       "src": "./assets/icons/gods/inari-okami.png",
-      "label": "Inari ÅŒkami",
+      "label": "Inari Ōkami",
       "source": "https://ageofempires.fandom.com/wiki/Inari_%C5%8Ckami",
       "imageSource": "https://static.wikia.nocookie.net/ageofempires/images/7/75/Inari_Okami_artwork_new_AoMR.png/revision/latest/scale-to-width-down/768?cb=20250929182038",
       "match": "Updated",
@@ -620,7 +620,7 @@ window.AOM_ICONS = {
     },
     "fujin": {
       "src": "./assets/icons/gods/fujin.png",
-      "label": "FÅ«jin",
+      "label": "Fūjin",
       "source": "https://ageofempires.fandom.com/wiki/F%C5%ABjin",
       "imageSource": "https://static.wikia.nocookie.net/ageofempires/images/1/11/Fujin_artwork_new_AoMR.png/revision/latest/scale-to-width-down/768?cb=20250929182043",
       "match": "Updated",
@@ -628,7 +628,7 @@ window.AOM_ICONS = {
     },
     "okuninushi": {
       "src": "./assets/icons/gods/okuninushi.png",
-      "label": "ÅŒkuninushi",
+      "label": "Ōkuninushi",
       "source": "https://ageofempires.fandom.com/wiki/%C5%8Ckuninushi",
       "imageSource": "https://static.wikia.nocookie.net/ageofempires/images/2/2f/Okuninushi_artwork_new_AoMR.png/revision/latest/scale-to-width-down/768?cb=20250929182907",
       "match": "Updated",
@@ -692,7 +692,7 @@ window.AOM_ICONS = {
     },
     "huehuecoyotl": {
       "src": "./assets/icons/gods/huehuecoyotl.png",
-      "label": "HuehuecÃ³yotl",
+      "label": "Huehuecóyotl",
       "source": "https://ageofempires.fandom.com/wiki/Huehuec%C3%B3yotl",
       "imageSource": "https://static.wikia.nocookie.net/ageofempires/images/6/6f/Huehuecoyotl_portrait_AoMR.png/revision/latest/scale-to-width-down/768?cb=20260608200413",
       "match": "Huehuecoyotl portrait AoMR",
@@ -862,7 +862,7 @@ window.AOM_ICONS = {
     },
     "onmyoji": {
       "src": "./assets/icons/units/onmyoji.png",
-      "label": "OnmyÅji",
+      "label": "Onmyōji",
       "source": "https://ageofempires.fandom.com/wiki/Onmy%C5%8Dji",
       "imageSource": "https://static.wikia.nocookie.net/ageofempires/images/e/e2/AoMR_Onmyoji_icon.png/revision/latest/scale-to-width-down/96?cb=20250930204905",
       "match": "AoMR Onmyoji icon",
@@ -1734,7 +1734,7 @@ window.AOM_ICONS = {
     },
     "wanyudo": {
       "src": "./assets/icons/units/wanyudo.png",
-      "label": "WanyÅ«dÅ",
+      "label": "Wanyūdō",
       "source": "https://ageofempires.fandom.com/wiki/Wany%C5%ABd%C5%8D",
       "imageSource": "https://static.wikia.nocookie.net/ageofempires/images/7/7e/AoMR_Wanyudo_icon.png/revision/latest/scale-to-width-down/96?cb=20250930204906",
       "match": "AoMR Wanyudo icon",
@@ -2262,7 +2262,7 @@ window.AOM_ICONS = {
     },
     "umibozu": {
       "src": "./assets/icons/units/umibozu.png",
-      "label": "UmibÅzu",
+      "label": "Umibōzu",
       "source": "https://ageofempires.fandom.com/wiki/Umib%C5%8Dzu",
       "imageSource": "https://static.wikia.nocookie.net/ageofempires/images/8/84/AoMR_Umibozu_icon.png/revision/latest/scale-to-width-down/96?cb=20250930204906",
       "match": "AoMR Umibozu icon",

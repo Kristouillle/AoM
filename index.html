@@ -7,48 +7,88 @@
     <link rel="stylesheet" href="./src/styles.css">
   </head>
   <body>
+    <a class="skip-link" href="#main-content">Skip to main content</a>
     <div class="app-shell">
       <aside class="sidebar" aria-label="Navigation">
-        <div class="brand">
+        <a class="brand" href="#home-view" aria-label="AoM Companion home">
           <div class="brand-mark">AoM</div>
           <div>
             <h1>Companion</h1>
             <p id="data-status">Local library</p>
           </div>
-        </div>
+        </a>
 
         <div class="sidebar-current" id="sidebar-current"></div>
 
         <nav class="quick-nav" aria-label="Sections">
-          <a href="#home-view" data-view-link="home-view">Home</a>
-          <a href="#counter-view" data-view-link="counter-view">Matchup</a>
-          <a href="#god-view" data-view-link="god-view">God</a>
-          <a href="#building-view" data-view-link="building-view">Buildings</a>
-          <a href="#unit-view" data-view-link="unit-view">Units</a>
-          <a href="#library-view" data-view-link="library-view">Library</a>
-          <a href="#build-order-view" data-view-link="build-order-view">Build Orders</a>
+          <div class="nav-group">
+            <p class="nav-group-label">Plan</p>
+            <a href="#home-view" data-view-link="home-view">
+              <span class="nav-index">01</span>
+              <span><strong>Home</strong><small>Choose your major god</small></span>
+            </a>
+            <a href="#counter-view" data-view-link="counter-view">
+              <span class="nav-index">02</span>
+              <span><strong>Matchup</strong><small>Find counters and timings</small></span>
+            </a>
+          </div>
+          <div class="nav-group">
+            <p class="nav-group-label">Explore</p>
+            <a href="#god-view" data-view-link="god-view">
+              <span class="nav-index">03</span>
+              <span><strong>God</strong><small>Bonuses and minor gods</small></span>
+            </a>
+            <a href="#building-view" data-view-link="building-view">
+              <span class="nav-index">04</span>
+              <span><strong>Buildings</strong><small>Production and upgrades</small></span>
+            </a>
+            <a href="#unit-view" data-view-link="unit-view">
+              <span class="nav-index">05</span>
+              <span><strong>Units</strong><small>Roster and combat stats</small></span>
+            </a>
+            <a href="#library-view" data-view-link="library-view">
+              <span class="nav-index">06</span>
+              <span><strong>Library</strong><small>Search every local entry</small></span>
+            </a>
+          </div>
+          <div class="nav-group">
+            <p class="nav-group-label">Create</p>
+            <a href="#build-order-view" data-view-link="build-order-view">
+              <span class="nav-index">07</span>
+              <span><strong>Build Orders</strong><small>Save and share playbooks</small></span>
+            </a>
+          </div>
         </nav>
       </aside>
 
-      <main class="workspace">
+      <main class="workspace" id="main-content" tabindex="-1">
         <section class="topbar" aria-label="Summary">
-          <div>
-            <p class="eyebrow">Age of Mythology: Retold</p>
+          <div class="topbar-copy">
+            <p class="eyebrow" id="view-context-label">Age of Mythology: Retold</p>
             <h2 id="selected-title">God overview</h2>
+            <p class="topbar-description" id="view-context-description">Choose a major god to tailor the companion.</p>
           </div>
           <div class="topbar-actions">
             <div class="stats-strip" id="stats-strip"></div>
-            <div class="age-group" role="group" aria-label="Current age filter">
-              <button class="age-button active" type="button" data-age="all">All</button>
-              <button class="age-button" type="button" data-age="Archaic">Archaic</button>
-              <button class="age-button" type="button" data-age="Classical">Classical</button>
-              <button class="age-button" type="button" data-age="Heroic">Heroic</button>
-              <button class="age-button" type="button" data-age="Mythic">Mythic</button>
-              <button class="age-button" type="button" data-age="Wonder">Wonder</button>
-            </div>
-            <div class="mode-group mode-group-light" role="group" aria-label="Result filters">
-              <button class="mode-button active" type="button" data-mode="core">Core</button>
-              <button class="mode-button" type="button" data-mode="all">All options</button>
+            <div class="context-filters" id="context-filters">
+              <div class="filter-block">
+                <span class="filter-label">Available by age</span>
+                <div class="age-group" role="group" aria-label="Current age filter">
+                  <button class="age-button active" type="button" data-age="all">All</button>
+                  <button class="age-button" type="button" data-age="Archaic">Archaic</button>
+                  <button class="age-button" type="button" data-age="Classical">Classical</button>
+                  <button class="age-button" type="button" data-age="Heroic">Heroic</button>
+                  <button class="age-button" type="button" data-age="Mythic">Mythic</button>
+                  <button class="age-button" type="button" data-age="Wonder">Wonder</button>
+                </div>
+              </div>
+              <div class="filter-block filter-block-compact">
+                <span class="filter-label">Roster scope</span>
+                <div class="mode-group mode-group-light" role="group" aria-label="Result filters">
+                  <button class="mode-button active" type="button" data-mode="core">Core</button>
+                  <button class="mode-button" type="button" data-mode="all">All options</button>
+                </div>
+              </div>
             </div>
           </div>
         </section>
@@ -59,12 +99,16 @@
               <div>
                 <p class="eyebrow">Home</p>
                 <h2>Select a god</h2>
+                <p class="section-intro">Your selection sets the roster, buildings, counters, and library across the app.</p>
               </div>
             </div>
-            <label class="field field-light">
-              <span>Search gods</span>
-              <input id="home-god-search" type="search" autocomplete="off" placeholder="Try Tsukuyomi, Zeus, Norse">
-            </label>
+            <div class="home-toolbar">
+              <label class="field field-light">
+                <span>Search gods</span>
+                <input id="home-god-search" type="search" autocomplete="off" placeholder="Try Tsukuyomi, Zeus, or Norse">
+              </label>
+              <p class="result-summary" id="home-god-result-count" role="status">Major gods</p>
+            </div>
             <div class="god-picker-grid" id="home-god-grid"></div>
           </div>
         </section>
@@ -288,11 +332,16 @@
     </div>
 
     <script src="./data/aom-data.js"></script>
+    <script src="./data/aom-strategy.js"></script>
+    <script src="./data/aom-technology-overrides.js"></script>
     <script src="./data/generated/aom-production.js"></script>
     <script src="./data/generated/aom-technology-supplement.js"></script>
     <script src="./data/generated/aom-icons.js"></script>
     <script src="./data/generated/aom-ui-icons.js"></script>
     <script src="./data/generated/aom-details.js"></script>
+    <script src="./src/app-config.js"></script>
+    <script src="./src/runtime-indexes.js"></script>
+    <script src="./src/strategy-engine.js"></script>
     <script src="./src/app.js"></script>
   </body>
 </html>

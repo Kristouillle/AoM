@@ -31,6 +31,21 @@ Icon files live in `assets/icons/`. The generated icon manifest is `data/generat
 
 Imported unit stats, attacks, unit upgrade chains, and technology effects live in `data/generated/aom-details.js`.
 
+Curated corrections for technology pages whose wiki layouts do not expose structured cost fields live in `data/aom-technology-overrides.js`. These corrections are merged over generated details at runtime. The details importer also retains the previous successful record when a refresh is rate-limited or a source page is temporarily unavailable.
+
+Matchup knowledge lives in `data/aom-strategy.js`. It contains pantheon openings, enemy-pantheon scouting rules, god-specific adjustments, and threat-class responses. `src/strategy-engine.js` combines those rules with the selected gods, age, target unit, current counter ranking, and available upgrades.
+
+## Application Structure
+
+The app remains a single offline shell so switching between Matchup, Units, Buildings, and Build Orders preserves the selected god and filters. Internally, shared responsibilities are split into focused files:
+
+- `src/app-config.js` defines page labels, descriptions, and contextual filters.
+- `src/runtime-indexes.js` converts name-based source relationships into stable ID indexes once at startup.
+- `src/strategy-engine.js` produces explainable matchup plans from the strategy rules.
+- `src/app.js` renders views, coordinates state, and manages local build orders.
+
+Suggested matchup plans can be converted directly into editable local build-order drafts, including the recommendation rationale.
+
 ## Import Wiki Structure
 
 Requires internet access:

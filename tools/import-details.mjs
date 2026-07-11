@@ -1,9 +1,11 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { loadRuntimeData } from "./runtime-data.mjs";
+import vm from "node:vm";
 
 const API_URL = "https://ageofempires.fandom.com/api.php";
 const WIKI_ROOT = "https://ageofempires.fandom.com/wiki/";
 const OUT = "data/generated/aom-details.js";
+const TECHNOLOGY_OVERRIDES = "data/aom-technology-overrides.js";
 const CONCURRENCY = 6;
 
 const SKIP_TECH_NAMES = new Set([
@@ -81,13 +83,15 @@ if (args.help) {
 
 const data = await loadRuntimeData();
 const generated = await loadGeneratedLibrary();
+const previousDetails = await loadExistingDetails();
+const technologyOverrides = await loadTechnologyOverrides();
 const titleByUnitName = buildTitleMap(generated);
 const units = data.units.filter((unit) => !isSyntheticUnit(unit));
 const techTargets = buildTechnologyTargets(data);
 
 const [unitEntries, technologyEntries] = await Promise.all([
-  runPool(units, (unit) => importUnit(unit, titleByUnitName)),
-  runPool(techTargets, importTechnology),
+  runPool(units, (unit) => importUnit(unit, titleByUnitName, previousDetails.units?.[unit.id])),
+  runPool(techTargets, (target) => importTechnology(target, previousDetails.technologies?.[target.id])),
 ]);
 
 const details = {
@@ -98,6 +102,8 @@ const details = {
 };
 const unitImportFailures = Object.values(details.units).filter((entry) => entry.importError);
 const technologyImportFailures = Object.values(details.technologies).filter((entry) => entry.importError);
+const unitRefreshWarnings = Object.values(details.units).filter((entry) => entry.refreshWarning);
+const technologyRefreshWarnings = Object.values(details.technologies).filter((entry) => entry.refreshWarning);
 
 if (!args.dryRun) {
   await mkdir("data/generated", { recursive: true });
@@ -110,11 +116,13 @@ process.stdout.write(
       units: {
         imported: Object.values(details.units).filter((entry) => !entry.importError).length,
         failed: unitImportFailures.length,
+        preserved: unitRefreshWarnings.length,
         requested: units.length,
       },
       technologies: {
         imported: Object.values(details.technologies).filter((entry) => !entry.importError).length,
         failed: technologyImportFailures.length,
+        preserved: technologyRefreshWarnings.length,
         requested: techTargets.length,
       },
       out: args.dryRun ? "(dry run)" : OUT,
@@ -157,6 +165,24 @@ async function loadGeneratedLibrary() {
     return JSON.parse(await readFile("data/generated/aom-library.generated.json", "utf8"));
   } catch {
     return null;
+  }
+}
+
+async function loadExistingDetails() {
+  return loadBrowserDataFile(OUT, "AOM_DETAILS", { units: {}, technologies: {} });
+}
+
+async function loadTechnologyOverrides() {
+  return loadBrowserDataFile(TECHNOLOGY_OVERRIDES, "AOM_TECHNOLOGY_OVERRIDES", {});
+}
+
+async function loadBrowserDataFile(file, globalName, fallback) {
+  try {
+    const sandbox = { window: {} };
+    vm.runInNewContext(await readFile(file, "utf8"), sandbox, { filename: file });
+    return sandbox.window[globalName] || fallback;
+  } catch {
+    return fallback;
   }
 }
 
@@ -215,7 +241,7 @@ function buildTechnologyTargets(data) {
   return Array.from(targets.values());
 }
 
-async function importUnit(unit, titleByUnitName) {
+async function importUnit(unit, titleByUnitName, previousEntry = null) {
   const title = titleByUnitName.get(normalize(unit.name)) || titleFromSource(unit.source) || unit.name;
 
   try {
@@ -265,6 +291,9 @@ async function importUnit(unit, titleByUnitName) {
       upgrades: extractUnitUpgradeRows(lines),
     };
   } catch (error) {
+    if (previousEntry && !previousEntry.importError) {
+      return { ...previousEntry, refreshWarning: error?.message || "Refresh failed; retained previous data." };
+    }
     return {
       id: unit.id,
       name: unit.name,
@@ -282,14 +311,15 @@ async function importUnit(unit, titleByUnitName) {
   }
 }
 
-async function importTechnology(target) {
+async function importTechnology(target, previousEntry = null) {
+  const override = technologyOverrides[target.id] || {};
   if (target.generic) {
     return {
       id: target.id,
       name: target.name,
-      source: "",
-      effect: target.fallbackEffect,
-      stats: {},
+      source: override.source || "",
+      effect: override.effect || target.fallbackEffect,
+      stats: { ...(override.stats || {}) },
       generic: true,
     };
   }
@@ -304,24 +334,38 @@ async function importTechnology(target) {
     const values = extractHeadingValues(lines);
     const effect = EFFECT_OVERRIDES.get(target.id) || cleanEffectText(sectionText(lines, "Effect", 4) || sectionText(lines, "Effects", 6)) || target.fallbackEffect;
 
+    const importedStats = pickValues(values, ["Pantheon", "God", "Age", "Researched at", "Required for", "Food", "Wood", "Gold", "Favor", "Research time", "Upgrade cost", "Upgrade time"]);
     return {
       id: target.id,
       name: target.name,
       title: page.title,
-      source: WIKI_ROOT + encodeURIComponent(page.title).replace(/%20/g, "_"),
-      effect,
-      stats: pickValues(values, ["Pantheon", "God", "Age", "Researched at", "Required for", "Food", "Wood", "Gold", "Favor", "Research time", "Upgrade cost", "Upgrade time"]),
+      source: override.source || WIKI_ROOT + encodeURIComponent(page.title).replace(/%20/g, "_"),
+      effect: override.effect || effect,
+      stats: { ...importedStats, ...(override.stats || {}) },
     };
     } catch (error) {
       lastError = error;
     }
   }
 
+  if (previousEntry && !previousEntry.importError) {
+    return { ...previousEntry, ...override, stats: { ...(previousEntry.stats || {}), ...(override.stats || {}) }, refreshWarning: lastError?.message || "Refresh failed; retained previous data." };
+  }
+  if (Object.keys(override.stats || {}).length) {
+    return {
+      id: target.id,
+      name: target.name,
+      source: override.source || target.source,
+      effect: override.effect || target.fallbackEffect,
+      stats: { ...override.stats },
+      refreshWarning: lastError?.message || "Refresh failed; used curated data.",
+    };
+  }
   return {
     id: target.id,
     name: target.name,
     source: target.source,
-    effect: target.fallbackEffect || "Exact effect pending import.",
+    effect: target.fallbackEffect || "Effect unavailable from the current source page.",
     stats: {},
     importError: true,
     error: lastError?.message,

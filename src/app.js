@@ -3,6 +3,10 @@
   const icons = window.AOM_ICONS || { units: {}, buildings: {}, technologies: {} };
   const uiIcons = window.AOM_UI_ICONS || { stats: {}, ages: {}, pantheons: {}, unitTypes: {} };
   const details = window.AOM_DETAILS || { units: {}, technologies: {} };
+  const technologyOverrides = window.AOM_TECHNOLOGY_OVERRIDES || {};
+  const appConfig = window.AOM_APP_CONFIG || { views: {} };
+  const runtimeIndexes = window.AOM_RUNTIME_INDEXES.create(data);
+  const strategyEngine = window.AOM_STRATEGY_ENGINE;
   const buildOrderDbName = "aom-companion-build-orders";
   const buildOrderStoreName = "buildOrders";
   const buildOrderSharePrefix = "AOMBO1.";
@@ -22,6 +26,8 @@
     buildOrderStatus: "Loading build orders...",
   };
   let buildOrderDb = null;
+  let activeSuggestedPlan = null;
+  let activeSuggestedPlanContext = null;
 
   const els = {
     dataStatus: byId("data-status"),
@@ -60,6 +66,9 @@
     ageButtons: Array.from(document.querySelectorAll(".age-button")),
     viewPanels: Array.from(document.querySelectorAll(".view-panel")),
     navLinks: Array.from(document.querySelectorAll("[data-view-link]")),
+    viewContextLabel: byId("view-context-label"),
+    viewContextDescription: byId("view-context-description"),
+    homeGodResultCount: byId("home-god-result-count"),
     selectedTitle: byId("selected-title"),
     statsStrip: byId("stats-strip"),
     counterTitle: byId("counter-title"),
@@ -80,11 +89,7 @@
     libraryResults: byId("library-results"),
   };
 
-  const pantheonById = new Map(data.pantheons.map((pantheon) => [pantheon.id, pantheon]));
-  const godById = new Map(data.gods.map((god) => [god.id, god]));
-  const unitById = new Map(data.units.map((unit) => [unit.id, unit]));
-  const buildingById = new Map(data.buildings.map((building) => [building.id, building]));
-  const technologyById = new Map(data.technologies.map((tech) => [tech.id, tech]));
+  const { pantheonById, godById, unitById, buildingById, technologyById } = runtimeIndexes;
   const ageOrder = new Map(data.ages.map((age, index) => [age, index]));
   const profileById = new Map(data.counterProfiles.map((profile) => [profile.id, profile]));
   const profileAliases = new Map([
@@ -399,12 +404,25 @@
 
   function renderActiveView() {
     const viewId = activeViewId();
+    const viewContext = appConfig.views[viewId] || appConfig.views["home-view"] || {
+      label: "AoM Companion",
+      description: "Browse the local strategy library.",
+      usesRosterFilters: false,
+    };
+
+    document.body.dataset.activeView = viewId;
+    document.body.classList.toggle("has-roster-filters", Boolean(viewContext.usesRosterFilters));
+    els.viewContextLabel.textContent = viewContext.label;
+    els.viewContextDescription.textContent = viewContext.description;
+    document.title = `${viewContext.label} · ${selectedGod().name} | AoM Companion`;
     els.viewPanels.forEach((panel) => {
       panel.classList.toggle("active", panel.id === viewId);
     });
     els.navLinks.forEach((linkEl) => {
-      linkEl.classList.toggle("active", linkEl.dataset.viewLink === viewId);
-      linkEl.setAttribute("aria-current", linkEl.dataset.viewLink === viewId ? "page" : "false");
+      const isActive = linkEl.dataset.viewLink === viewId;
+      linkEl.classList.toggle("active", isActive);
+      if (isActive) linkEl.setAttribute("aria-current", "page");
+      else linkEl.removeAttribute("aria-current");
     });
   }
 
@@ -424,12 +442,17 @@
 
   function renderHome() {
     const term = normalize(els.homeGodSearch.value.trim());
-    const gods = majorGods()
+    const allMajorGods = majorGods();
+    const gods = allMajorGods
       .filter((god) => {
         if (!term) return true;
         const pantheon = pantheonById.get(god.pantheon);
         return normalize([god.name, god.focus, pantheon?.name, pantheon?.focus].join(" ")).includes(term);
       });
+
+    els.homeGodResultCount.textContent = term
+      ? `${gods.length} of ${allMajorGods.length} major gods`
+      : `${gods.length} major gods`;
 
     els.homeGodGrid.innerHTML = data.pantheons
       .map((pantheon) => {
@@ -456,7 +479,7 @@
 
   function godCard(god, pantheon) {
     return `
-      <button class="god-card ${god.id === state.godId ? "active" : ""}" type="button" data-god-id="${escapeAttribute(god.id)}">
+      <button class="god-card ${god.id === state.godId ? "active" : ""}" type="button" data-god-id="${escapeAttribute(god.id)}" aria-pressed="${god.id === state.godId ? "true" : "false"}">
         <span class="god-card-media" aria-hidden="true">
           ${iconMarkup("gods", god, "god-card-portrait")}
         </span>
@@ -520,13 +543,15 @@
     const coreUnits = availableUnits(god, "core").filter((unit) => !unit.classes.includes("economic"));
 
     els.dataStatus.textContent = `${data.units.length} units seeded`;
-    els.selectedTitle.textContent = `${god.name} - ${pantheon.name}`;
+    els.selectedTitle.textContent = `${god.name} — ${pantheon.name}`;
     els.sidebarCurrent.innerHTML = `
       ${iconMarkup("gods", god, "portrait small-portrait")}
-      <p class="eyebrow">Current god</p>
-      <strong>${escapeHtml(god.name)}</strong>
-      <span>${escapeHtml(pantheon.name)}</span>
-      <a href="#home-view">Change god</a>
+      <div class="sidebar-current-copy">
+        <p class="eyebrow">Current god</p>
+        <strong>${escapeHtml(god.name)}</strong>
+        <span>${escapeHtml(pantheon.name)}</span>
+        <a href="#home-view">Change god</a>
+      </div>
     `;
     els.statsStrip.innerHTML = [
       stat(buildings.length, "Buildings"),
@@ -586,7 +611,7 @@
     els.buildingList.innerHTML = buildings
       .map(
         (building) => `
-          <button class="building-button ${building.id === state.buildingId ? "active" : ""}" type="button" data-building-id="${building.id}">
+          <button class="building-button ${building.id === state.buildingId ? "active" : ""}" type="button" data-building-id="${building.id}" aria-pressed="${building.id === state.buildingId ? "true" : "false"}">
             ${iconMarkup("buildings", building)}
             <span class="building-button-copy">
               <strong>${escapeHtml(building.name)}</strong>
@@ -693,18 +718,18 @@
 
   function unitCard(unit, selectedUnitId = state.unitId) {
     return `
-      <article class="unit-card ${unit.id === selectedUnitId ? "active" : ""}" data-unit-id="${escapeAttribute(unit.id)}">
-        <div class="entity-heading">
+      <button class="unit-card ${unit.id === selectedUnitId ? "active" : ""}" type="button" data-unit-id="${escapeAttribute(unit.id)}" aria-pressed="${unit.id === selectedUnitId ? "true" : "false"}">
+        <span class="entity-heading">
           ${iconMarkup("units", unit)}
-          <h3>${escapeHtml(unit.name)}</h3>
-        </div>
-        <p>${escapeHtml(unit.note)}</p>
-        <div class="meta-line">
+          <strong class="card-title">${escapeHtml(unit.name)}</strong>
+        </span>
+        <span class="card-description">${escapeHtml(unit.note)}</span>
+        <span class="meta-line">
           ${tag(unit.age, "gold")}
           ${availabilityTag(unit)}
           ${unit.classes.slice(0, 4).map((unitClass) => tag(unitClass, "blue")).join("")}
-        </div>
-      </article>
+        </span>
+      </button>
     `;
   }
 
@@ -767,7 +792,9 @@
     const planTarget = target || inferredTargetFromThreats(threats);
     const planResults = target ? exactResults : planTarget ? counterResultsForTarget(god, planTarget) : [];
     const topCounters = planResults.slice(0, 3);
-    const steps = buildOrderSteps(god, enemyGod, target, planTarget, topCounters, threats);
+    const suggestedPlan = createSuggestedMatchupPlan(god, enemyGod, target, planTarget, topCounters, threats);
+    activeSuggestedPlan = suggestedPlan;
+    activeSuggestedPlanContext = { god, enemyGod, target, planTarget };
     const watchItems = matchupWatchItems(enemyGod, target, threats);
     const matchingOrders = matchingBuildOrdersForMatchup(god, enemyGod);
     const selectedOrder = selectedMatchupBuildOrder(matchingOrders);
@@ -793,10 +820,10 @@
         <section class="matchup-card matchup-card-wide">
           <div class="matchup-card-heading">
             <h3>Build order</h3>
-            <span>${escapeHtml(selectedOrder ? "saved override" : target ? "unit-specific" : enemyGod ? "roster-based" : "general")}</span>
+            <span>${escapeHtml(selectedOrder ? "saved override" : suggestedPlan.specificity)}</span>
           </div>
           ${matchupBuildOrderSourceControl(matchingOrders, selectedOrder)}
-          ${selectedOrder ? savedMatchupBuildOrderMarkup(selectedOrder) : suggestedMatchupBuildOrderMarkup(steps)}
+          ${selectedOrder ? savedMatchupBuildOrderMarkup(selectedOrder) : suggestedMatchupBuildOrderMarkup(suggestedPlan)}
         </section>
         <section class="matchup-card">
           <div class="matchup-card-heading">
@@ -833,6 +860,16 @@
   }
 
   function handleMatchupBuildOrderClick(event) {
+    const createButton = event.target.closest("[data-matchup-build-create]");
+    if (createButton && activeSuggestedPlan && activeSuggestedPlanContext) {
+      state.buildOrderId = "";
+      localStorage.removeItem("aom:selectedBuildOrder");
+      state.buildOrderStatus = "Drafted from the current matchup suggestion. Review the timings, then save it locally.";
+      renderBuildOrders(suggestedPlanBuildOrderDraft(activeSuggestedPlan, activeSuggestedPlanContext));
+      navigateTo("build-order-view");
+      return;
+    }
+
     const editButton = event.target.closest("[data-matchup-build-edit]");
     if (!editButton) return;
     const order = state.buildOrders.find((candidate) => candidate.id === editButton.dataset.matchupBuildEdit);
@@ -888,17 +925,63 @@
         ${
           selectedOrder
             ? `<button class="secondary-button" type="button" data-matchup-build-edit="${escapeAttribute(selectedOrder.id)}">Edit build</button>`
-            : `<a class="secondary-button" href="#build-order-view">Create build</a>`
+            : `<button class="secondary-button" type="button" data-matchup-build-create>Create build</button>`
         }
       </div>
     `;
   }
 
-  function suggestedMatchupBuildOrderMarkup(steps) {
+  function suggestedPlanBuildOrderDraft(plan, context) {
+    const matchupLabel = context.enemyGod?.name || context.target?.name || context.planTarget?.name || "Any enemy";
+    const targetTags = context.target?.tags || context.planTarget?.tags || [];
+    return {
+      ...defaultBuildOrderDraft(),
+      title: `${context.god.name} vs ${matchupLabel}`,
+      godId: context.god.id,
+      enemyGodId: context.enemyGod?.id || "all",
+      age: state.age,
+      tags: unique(["suggested", "matchup", ...targetTags.slice(0, 4)]),
+      goals: [{ time: state.age === "all" ? "Flexible" : state.age, text: plan.summary }],
+      steps: plan.steps.map((step) => ({
+        time: step.phase,
+        action: step.action,
+        notes: step.reason,
+      })),
+      notes: `Generated from strategy rules v${plan.version}. ${plan.matchedRules.map((rule) => `${rule.label}: ${rule.reason}`).join(" ")}`,
+    };
+  }
+
+  function suggestedMatchupBuildOrderMarkup(plan) {
     return `
-      <ol class="matchup-build-step-list">
-        ${steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}
+      <div class="suggested-plan-summary">
+        <strong>${escapeHtml(plan.title)}</strong>
+        <p>${escapeHtml(plan.summary)}</p>
+        <div class="suggested-plan-priorities" aria-label="Resource priority">
+          <span>Resource priority</span>
+          ${plan.priorities.map((resource, index) => tag(`${index + 1}. ${resource}`, index === 0 ? "gold" : "blue")).join("")}
+        </div>
+      </div>
+      <ol class="strategy-step-list">
+        ${plan.steps.map(strategyStepMarkup).join("")}
       </ol>
+      <details class="strategy-rationale">
+        <summary>Why this plan</summary>
+        <div>
+          ${plan.matchedRules.map((rule) => `<p><strong>${escapeHtml(rule.label)}</strong><span>${escapeHtml(rule.reason)}</span></p>`).join("")}
+        </div>
+      </details>
+    `;
+  }
+
+  function strategyStepMarkup(step) {
+    return `
+      <li>
+        <span class="strategy-phase">${escapeHtml(step.phase)}</span>
+        <span class="strategy-step-copy">
+          <strong>${escapeHtml(step.action)}</strong>
+          <span>${escapeHtml(step.reason)}</span>
+        </span>
+      </li>
     `;
   }
 
@@ -1032,90 +1115,42 @@
       : ["enemy god", "first unit line", "current age"];
   }
 
-  function buildOrderSteps(god, enemyGod, target, planTarget, counterResults, threats) {
+  function createSuggestedMatchupPlan(god, enemyGod, target, planTarget, counterResults, threats) {
     const counterUnits = counterResults.map((result) => result.unit);
     const primaryCounter = counterUnits[0];
-    const targetLabel = target
-      ? target.name
-      : planTarget
-        ? `${planTarget.name.toLowerCase()} pressure`
-        : "the first scouted unit line";
-    const enemyLabel = enemyGod ? enemyGod.name : "the opponent";
-    const productionBuilding = primaryCounter?.building || fallbackProductionBuilding(god, planTarget);
-    const counterNames = counterUnits.length ? formatList(counterUnits.map((unit) => unit.name)) : "your best confirmed counter";
-
-    return [
-      pantheonOpeningStep(god),
-      `Scout ${enemyLabel}'s first production building and confirm whether the threat is ${targetLabel}.`,
-      `Bias resources toward ${productionBuilding}; start ${counterNames} before adding a second army line.`,
-      upgradeTimingStep(primaryCounter, god),
-      transitionTimingStep(threats, target),
-    ];
-  }
-
-  function pantheonOpeningStep(god) {
-    const special = normalize(god.name) === "tsukuyomi"
-      ? " Fold in safe technology researches when possible so Bushido XP advances with the opening."
-      : "";
-
-    switch (god.pantheon) {
-      case "greeks":
-        return `Open on stable food and wood, scout early, then choose the first military building around the scouted threat.${special}`;
-      case "egyptians":
-        return "Open around Pharaoh empowerment and safe drop sites; keep Barracks counter infantry available before committing to a Migdol plan.";
-      case "norse":
-        return "Open actively with flexible infantry builders, but only forward-build after scouting confirms the enemy timing.";
-      case "atlanteans":
-        return "Open with Citizen efficiency and Oracle vision; keep hero promotion resources available if Temple units appear.";
-      case "chinese":
-        return "Open with a protected economy and early hero support; pick Military Camp or Machine Workshop from the enemy unit tags.";
-      case "japanese":
-        return `Open with Shrine value, Miko safety, and a fast read on whether Guardhouse, Stable, or Dojo is needed first.${special}`;
-      case "aztecs":
-        return "Open conservatively until the imported roster is verified; use the scouted unit class to choose the first counter line.";
-      default:
-        return "Open with scouting first, then commit production only after the first enemy unit line is known.";
-    }
-  }
-
-  function fallbackProductionBuilding(god, target) {
-    const targetTags = new Set(target?.tags || []);
     const buildings = availableBuildings(god);
-    const named = (name) => buildings.find((building) => normalize(building.name) === normalize(name))?.name;
+    const targetTags = new Set((target || planTarget)?.tags || []);
+    const namedBuilding = (name) => buildings.find((building) => normalize(building.name) === normalize(name))?.name;
+    const fallbackBuilding = targetTags.has("ship")
+      ? namedBuilding("Dock") || "Dock"
+      : targetTags.has("myth")
+        ? namedBuilding("Temple") || "hero access"
+        : buildings.find((building) => building.type === "production" && building.produces.length)?.name || "your first military building";
+    const upgradeGroup = primaryCounter
+      ? availableUpgradeGroupsForUnit(primaryCounter, god).find((candidate) => candidate.upgrades.length)
+      : null;
+    const upgrades = upgradeGroup?.upgrades.slice(0, 2).map((upgrade) => upgrade.name) || [];
+    const upgradeAction = primaryCounter
+      ? upgrades.length
+        ? `After ${primaryCounter.name} count is stable, check ${upgradeGroup.building.name} for ${formatList(upgrades)}.`
+        : `Keep resources in ${primaryCounter.name} count first; no current-age upgrade is mapped for it yet.`
+      : "Delay military upgrades until the enemy line is confirmed; spend first on economy and the counter building.";
 
-    if (targetTags.has("ship")) return named("Dock") || "Dock";
-    if (targetTags.has("myth")) return named("Temple") || "hero access";
-    const production = buildings.find((building) => building.type === "production" && building.produces.length);
-    return production?.name || "your first military building";
-  }
-
-  function upgradeTimingStep(unit, god) {
-    if (!unit) {
-      return "Delay military upgrades until the enemy line is confirmed; spend first on economy and the counter building.";
-    }
-
-    const group = availableUpgradeGroupsForUnit(unit, god).find((candidate) => candidate.upgrades.length);
-    const upgrades = group?.upgrades.slice(0, 2).map((upgrade) => upgrade.name) || [];
-    if (!upgrades.length) {
-      return `Keep resources in ${unit.name} count first; no current-age upgrade is mapped for this unit yet.`;
-    }
-
-    return `When unit count is stable, check ${group.building.name} for ${formatList(upgrades)}.`;
-  }
-
-  function transitionTimingStep(threats, target) {
-    if (state.age === "all") {
-      return "During play, switch the age filter as you advance so the counter list stays timing-correct.";
-    }
-
-    if (target?.unit && ageOrder.get(target.unit.age) > ageOrder.get(state.age)) {
-      return `${target.unit.name} is later than ${state.age}; use this as a transition warning, not an immediate panic response.`;
-    }
-
-    const topThreat = threats[0]?.name;
-    return topThreat
-      ? `Before aging again, verify whether the opponent is staying on ${topThreat.toLowerCase()} or tech-switching.`
-      : "Before aging again, re-scout production so the next building answers the real switch.";
+    return strategyEngine.createPlan({
+      age: state.age,
+      playerGod: { id: god.id, name: god.name, pantheon: god.pantheon },
+      enemyGod: enemyGod ? { id: enemyGod.id, name: enemyGod.name, pantheon: enemyGod.pantheon, focus: enemyGod.focus } : null,
+      target,
+      inferredTarget: target ? null : planTarget,
+      counters: counterUnits.map((unit) => ({ id: unit.id, name: unit.name, age: unit.age, building: unit.building })),
+      threats,
+      fallbackBuilding,
+      upgradeAction,
+      upgradeReason: primaryCounter
+        ? "Upgrade only after the counter line has enough bodies to function in the current fight."
+        : "Early upgrades are risky before the target composition is known.",
+      targetIsLaterAge: Boolean(target?.unit && state.age !== "all" && ageOrder.get(target.unit.age) > ageOrder.get(state.age)),
+    });
   }
 
   function renderEnemyUnitPicker(enemyGod, query, target) {
@@ -1171,21 +1206,21 @@
   function counterResult(result) {
     const { unit, confidence, matches, reasons } = result;
     return `
-      <article class="result-item" data-unit-id="${escapeAttribute(unit.id)}">
+      <button class="result-item" type="button" data-unit-id="${escapeAttribute(unit.id)}" aria-label="View ${escapeAttribute(unit.name)} in Buildings">
         ${iconMarkup("units", unit)}
-        <div>
-          <h3>${escapeHtml(unit.name)}</h3>
-          <p>${escapeHtml(unit.note)}</p>
-          <p class="counter-evidence">${escapeHtml(counterReason(reasons))}</p>
-          <div class="meta-line">
+        <span class="result-copy">
+          <strong class="card-title">${escapeHtml(unit.name)}</strong>
+          <span class="card-description">${escapeHtml(unit.note)}</span>
+          <span class="card-description counter-evidence">${escapeHtml(counterReason(reasons))}</span>
+          <span class="meta-line">
             ${tag(unit.building, "green")}
             ${tag(unit.age, "gold")}
             ${availabilityTag(unit)}
             ${matches.map((match) => tag(match, "blue")).join("")}
-          </div>
-        </div>
-        <div class="score" aria-label="${escapeAttribute(confidence)} counter fit"><strong>${escapeHtml(confidence)}</strong><span>fit</span></div>
-      </article>
+          </span>
+        </span>
+        <span class="score" aria-label="${escapeAttribute(confidence)} counter fit"><strong>${escapeHtml(confidence)}</strong><span>fit</span></span>
+      </button>
     `;
   }
 
@@ -1243,7 +1278,8 @@
     const key = slugify(name);
     const seeded = seed || technologyById.get(key) || data.technologies.find((tech) => slugify(tech.name) === key);
     const generated = details.technologies?.[key];
-    const stats = generated?.stats || {};
+    const override = technologyOverrides[key] || {};
+    const stats = { ...(generated?.stats || {}), ...(override.stats || {}) };
     const buildings = unique([
       ...fallbackBuildings,
       ...technologyBuildingNames(seeded || {}),
@@ -1253,11 +1289,12 @@
     return {
       id: key,
       name,
-      effect: generated?.effect || seeded?.effect || "Exact effect is not in the local dataset yet.",
+      effect: override.effect || generated?.effect || seeded?.effect || "Exact effect is not in the local dataset yet.",
       stats,
       god: stats.God || seeded?.availability?.god || "",
-      source: generated?.source || seeded?.source || "",
+      source: override.source || generated?.source || seeded?.source || "",
       buildings,
+      generic: Boolean(generated?.generic),
     };
   }
 
@@ -1342,7 +1379,9 @@
 
     return costs
       ? `<span class="upgrade-tooltip-costs">${costs}</span>`
-      : `<span class="upgrade-tooltip-muted">Cost pending import.</span>`;
+      : upgrade.generic
+        ? `<span class="upgrade-tooltip-muted">Costs vary across the technologies in this category.</span>`
+        : `<span class="upgrade-tooltip-muted">No resource cost is listed for this upgrade.</span>`;
   }
 
   function unitDetail(unit) {
@@ -2213,14 +2252,11 @@
   }
 
   function availableBuildings(god, ageLimit = state.age) {
-    return data.buildings
-      .filter((building) => hasPantheon(building, god.pantheon))
-      .filter((building) => availableInCurrentAge(building, ageLimit));
+    return runtimeIndexes.buildingsForPantheon(god.pantheon).filter((building) => availableInCurrentAge(building, ageLimit));
   }
 
   function availableUnits(god, mode = state.mode, ageLimit = state.age) {
-    return data.units.filter((unit) => {
-      if (!unit.pantheons.includes(god.pantheon) && !unit.pantheons.includes("all")) return false;
+    return runtimeIndexes.unitsForPantheon(god.pantheon).filter((unit) => {
       if (unit.availability?.majorGods && !unit.availability.majorGods.includes(god.id)) return false;
       if (unit.availability?.minorGod && !minorGodAvailable(god, unit.availability.minorGod)) return false;
       if (mode === "core" && (unit.availability?.minorGod || unit.availability?.conditional)) return false;
@@ -2230,8 +2266,7 @@
   }
 
   function availableTechnologies(god, mode = state.mode, ageLimit = state.age) {
-    return data.technologies.filter((tech) => {
-      if (tech.pantheons && !tech.pantheons.includes("all") && !tech.pantheons.includes(god.pantheon)) return false;
+    return runtimeIndexes.technologiesForPantheon(god.pantheon).filter((tech) => {
       const techGod = tech.availability?.god;
       if (techGod && !majorOrMinorGodAvailable(god, techGod)) return false;
       if (mode === "core" && techGod && normalize(techGod) !== normalize(god.name)) return false;
@@ -2254,12 +2289,7 @@
   }
 
   function isProducedAt(unit, building) {
-    const buildingName = normalize(building.name);
-    if ((unit.productionBuildings || [unit.building]).some((name) => normalize(name) === buildingName)) return true;
-    return building.produces.some((produced) => {
-      const normalizedProduced = normalize(produced);
-      return normalizedProduced === unit.id || normalizedProduced === normalize(unit.name);
-    });
+    return runtimeIndexes.unitIdsForBuilding(building.id).has(unit.id);
   }
 
   function availabilityTag(unit) {
