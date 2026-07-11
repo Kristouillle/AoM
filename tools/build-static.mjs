@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outputDir = path.join(root, "dist");
-const staticEntries = ["index.html", "src", "data", "assets"];
+const staticEntries = ["index.html", "_headers", "src", "data", "assets"];
 
 await rm(outputDir, { recursive: true, force: true });
 await mkdir(outputDir, { recursive: true });

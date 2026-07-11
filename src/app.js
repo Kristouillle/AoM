@@ -453,10 +453,7 @@
         localStorage.setItem("aom:currentAge", state.age);
         renderAgeButtons();
         renderSummary();
-        renderBuildings();
-        renderUnits();
-        renderCounters();
-        renderLibrary();
+        renderActiveViewContent();
       });
     });
 
@@ -465,10 +462,8 @@
         state.mode = button.dataset.mode;
         localStorage.setItem("aom:counterMode", state.mode);
         renderModeButtons();
-        renderCounters();
-        renderUnits();
-        renderBuildings();
         renderSummary();
+        renderActiveViewContent();
       });
     });
   }
@@ -478,13 +473,24 @@
     renderModeButtons();
     renderActiveView();
     renderSummary();
-    renderHome();
-    renderGod();
-    renderBuildings();
-    renderUnits();
-    renderCounters();
-    renderLibrary();
-    renderBuildOrders();
+    renderActiveViewContent();
+  }
+
+  function renderActiveViewContent(viewId = activeViewId()) {
+    const renderers = {
+      "home-view": renderHome,
+      "god-view": renderGod,
+      "building-view": renderBuildings,
+      "unit-view": renderUnits,
+      "counter-view": renderCounters,
+      "library-view": renderLibrary,
+      "build-order-view": renderBuildOrders,
+    };
+    renderers[viewId]?.();
+  }
+
+  function renderViewIfActive(viewId, renderer) {
+    if (activeViewId() === viewId) renderer();
   }
 
   function renderActiveView() {
@@ -953,7 +959,6 @@
       if (!availableBuildings(god).some((building) => building.id === entry.entity.id)) setCommandAgeFilter("all");
       state.buildingId = entry.entity.id;
       localStorage.setItem("aom:selectedBuilding", state.buildingId);
-      render();
       navigateEntity("building", entry.entity.id, { godId: god.id });
       return;
     }
@@ -968,7 +973,6 @@
         state.buildingId = building.id;
         localStorage.setItem("aom:selectedBuilding", state.buildingId);
       }
-      render();
       const viewId = entry.entity.classes.includes("economic") && building ? "building-view" : "unit-view";
       navigateEntity("unit", entry.entity.id, { godId: god.id, buildingId: building?.id, viewId });
       return;
@@ -984,7 +988,6 @@
       setCommandAgeFilter("all");
       state.buildingId = building.id;
       localStorage.setItem("aom:selectedBuilding", state.buildingId);
-      render();
       navigateEntity("upgrade", upgradeId, { godId: god.id, buildingId: building.id });
     }
   }
@@ -1090,7 +1093,6 @@
 
   function selectGod(godId) {
     if (!setSelectedGodState(godId)) return;
-    render();
     navigateEntity("god", godId);
   }
 
@@ -1244,7 +1246,6 @@
         state.unitId = "";
         localStorage.setItem("aom:selectedBuilding", state.buildingId);
         localStorage.removeItem("aom:selectedUnit");
-        renderBuildings();
         navigateEntity("building", state.buildingId, { godId: god.id });
       });
     });
@@ -2082,10 +2083,6 @@
       localStorage.setItem("aom:selectedBuilding", state.buildingId);
     }
 
-    renderBuildings();
-    renderUnits();
-    renderCounters();
-
     const viewId = jumpToBuilding || activeViewId() === "building-view" ? "building-view" : "unit-view";
     navigateEntity("unit", unit.id, { godId: god.id, buildingId: building?.id, viewId });
   }
@@ -2818,8 +2815,8 @@
       state.buildOrderId = state.buildOrders[0].id;
       localStorage.setItem("aom:selectedBuildOrder", state.buildOrderId);
     }
-    renderBuildOrders();
-    renderCounters();
+    renderViewIfActive("build-order-view", renderBuildOrders);
+    renderViewIfActive("counter-view", renderCounters);
   }
 
   function openBuildOrderDb() {
@@ -3025,7 +3022,7 @@
     }
 
     renderBuildOrders();
-    renderCounters();
+    renderViewIfActive("counter-view", renderCounters);
   }
 
   async function deleteSelectedBuildOrder() {
@@ -3051,7 +3048,7 @@
     }
 
     renderBuildOrders();
-    renderCounters();
+    renderViewIfActive("counter-view", renderCounters);
   }
 
   function exportCurrentBuildOrder() {
@@ -3098,7 +3095,7 @@
       state.buildOrderStatus = `Import failed: ${error.message || error}`;
     }
     renderBuildOrders();
-    renderCounters();
+    renderViewIfActive("counter-view", renderCounters);
   }
 
   async function importBuildOrderLibraryCode() {
@@ -3119,7 +3116,7 @@
       state.buildOrderStatus = `Backup import failed: ${error.message || error}`;
     }
     renderBuildOrders();
-    renderCounters();
+    renderViewIfActive("counter-view", renderCounters);
   }
 
   function buildOrderDraftFromForm() {
@@ -3488,7 +3485,7 @@
     const icon = findIcon(kind, entity);
     const initial = label.trim().slice(0, 1).toUpperCase() || "?";
     const className = ["entity-icon", size, icon?.src ? "" : "missing"].filter(Boolean).join(" ");
-    const loading = size.includes("god-card-portrait") ? "eager" : "lazy";
+    const loading = "lazy";
     const image = icon?.src
       ? `<img src="${escapeAttribute(icon.src)}" alt="" loading="${loading}" onerror="this.parentElement.classList.add('missing')">`
       : "";
