@@ -11,6 +11,7 @@ The first version is a browser-based local app so it opens without installing El
 ## What Works Now
 
 - Select a major god and view its pantheon, focus notes, buildings, and roster.
+- Press `K`, `/`, or `Ctrl/Cmd+K` to jump to any page, major god, unit, building, or upgrade.
 - Click a building to see produced units and known upgrades.
 - Search the selected god's local library.
 - Search an enemy unit or class, such as `cavalry`, `archer`, `myth`, `Toxotes`, or `Hippeus`, and get counter options from the selected god.

@@ -69,6 +69,13 @@
             <p class="topbar-description" id="view-context-description">Choose a major god to tailor the companion.</p>
           </div>
           <div class="topbar-actions">
+            <button class="command-palette-trigger" type="button" id="command-palette-trigger" aria-haspopup="dialog" aria-controls="command-palette" aria-keyshortcuts="K Control+K Meta+K /">
+              <span class="command-palette-trigger-copy">
+                <span aria-hidden="true">⌕</span>
+                <span>Jump to anything</span>
+              </span>
+              <kbd>K</kbd>
+            </button>
             <div class="stats-strip" id="stats-strip"></div>
             <div class="context-filters" id="context-filters">
               <div class="filter-block">
@@ -330,6 +337,26 @@
         </section>
       </main>
     </div>
+
+    <dialog class="command-palette" id="command-palette" aria-labelledby="command-palette-title">
+      <div class="command-palette-shell">
+        <div class="command-palette-search">
+          <span class="command-palette-search-icon" aria-hidden="true">⌕</span>
+          <div>
+            <h2 class="sr-only" id="command-palette-title">Jump to anything</h2>
+            <label class="sr-only" for="command-palette-input">Search pages, gods, units, buildings, and upgrades</label>
+            <input id="command-palette-input" type="search" autocomplete="off" spellcheck="false" placeholder="Search pages, gods, units, buildings, upgrades…" aria-controls="command-palette-results" aria-autocomplete="list">
+          </div>
+          <button class="command-palette-close" type="button" id="command-palette-close" aria-label="Close search">Esc</button>
+        </div>
+        <div class="command-palette-results" id="command-palette-results" role="listbox" aria-label="Search results"></div>
+        <div class="command-palette-footer" aria-hidden="true">
+          <span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
+          <span><kbd>Enter</kbd> Open</span>
+          <span><kbd>Esc</kbd> Close</span>
+        </div>
+      </div>
+    </dialog>
 
     <script src="./data/aom-data.js"></script>
     <script src="./data/aom-strategy.js"></script>

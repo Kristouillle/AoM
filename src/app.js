@@ -1,6 +1,6 @@
 (() => {
   const data = withProductionSupplement(window.AOM_DATA, window.AOM_PRODUCTION, window.AOM_TECHNOLOGY_SUPPLEMENT);
-  const icons = window.AOM_ICONS || { units: {}, buildings: {}, technologies: {} };
+  const icons = window.AOM_ICONS || { gods: {}, units: {}, buildings: {}, technologies: {} };
   const uiIcons = window.AOM_UI_ICONS || { stats: {}, ages: {}, pantheons: {}, unitTypes: {} };
   const details = window.AOM_DETAILS || { units: {}, technologies: {} };
   const technologyOverrides = window.AOM_TECHNOLOGY_OVERRIDES || {};
@@ -28,6 +28,9 @@
   let buildOrderDb = null;
   let activeSuggestedPlan = null;
   let activeSuggestedPlanContext = null;
+  let commandEntries = [];
+  let commandResults = [];
+  let commandSelectionIndex = 0;
 
   const els = {
     dataStatus: byId("data-status"),
@@ -87,6 +90,11 @@
     unitSideDetail: byId("unit-side-detail"),
     libraryCount: byId("library-count"),
     libraryResults: byId("library-results"),
+    commandPalette: byId("command-palette"),
+    commandPaletteTrigger: byId("command-palette-trigger"),
+    commandPaletteInput: byId("command-palette-input"),
+    commandPaletteClose: byId("command-palette-close"),
+    commandPaletteResults: byId("command-palette-results"),
   };
 
   const { pantheonById, godById, unitById, buildingById, technologyById } = runtimeIndexes;
@@ -172,6 +180,7 @@
     populateEnemyGodSelect();
     populateEnemyDatalist();
     populateBuildOrderSelects();
+    commandEntries = buildCommandEntries();
     wireEvents();
     render();
     loadBuildOrders();
@@ -335,6 +344,22 @@
 
   function wireEvents() {
     window.addEventListener("hashchange", renderActiveView);
+    document.addEventListener("keydown", handleGlobalShortcut);
+    els.commandPaletteTrigger.addEventListener("click", openCommandPalette);
+    els.commandPaletteClose.addEventListener("click", closeCommandPalette);
+    els.commandPaletteInput.addEventListener("input", () => {
+      commandSelectionIndex = 0;
+      renderCommandPaletteResults();
+    });
+    els.commandPaletteInput.addEventListener("keydown", handleCommandPaletteKeydown);
+    els.commandPaletteResults.addEventListener("click", handleCommandPaletteClick);
+    els.commandPalette.addEventListener("click", (event) => {
+      if (event.target === els.commandPalette) closeCommandPalette();
+    });
+    els.commandPalette.addEventListener("close", () => {
+      els.commandPaletteInput.value = "";
+      commandSelectionIndex = 0;
+    });
     els.homeGodSearch.addEventListener("input", renderHome);
     els.librarySearch.addEventListener("input", renderLibrary);
     els.buildOrderNew.addEventListener("click", () => {
@@ -440,6 +465,346 @@
     window.location.hash = viewId;
   }
 
+  function buildCommandEntries() {
+    const gods = majorGods();
+    const availability = new Map(
+      gods.map((god) => [
+        god.id,
+        {
+          buildingIds: new Set(availableBuildings(god, "all").map((building) => building.id)),
+          unitIds: new Set(availableUnits(god, "all", "all").map((unit) => unit.id)),
+        },
+      ]),
+    );
+    const entries = els.navLinks.map((linkEl) => ({
+      id: `page:${linkEl.dataset.viewLink}`,
+      kind: "page",
+      category: "Pages",
+      name: linkEl.querySelector("strong")?.textContent || linkEl.dataset.viewLink,
+      subtitle: linkEl.querySelector("small")?.textContent || "Open page",
+      viewId: linkEl.dataset.viewLink,
+      searchText: `page view navigation ${linkEl.textContent}`,
+    }));
+
+    entries.push(
+      ...gods.map((god) => ({
+        id: `god:${god.id}`,
+        kind: "god",
+        category: "Gods",
+        name: god.name,
+        subtitle: `${pantheonById.get(god.pantheon)?.name || god.pantheon} · ${god.focus}`,
+        entity: god,
+        iconKind: "gods",
+        searchText: `god major ${god.pantheon} ${pantheonById.get(god.pantheon)?.name || ""} ${god.focus}`,
+      })),
+    );
+
+    data.units.forEach((unit) => {
+      const godIds = gods.filter((god) => availability.get(god.id).unitIds.has(unit.id)).map((god) => god.id);
+      if (!godIds.length) return;
+      entries.push({
+        id: `unit:${unit.id}`,
+        kind: "unit",
+        category: "Units",
+        name: unit.name,
+        subtitle: `${unit.age} · ${unit.building || "No production building"}`,
+        entity: unit,
+        iconKind: "units",
+        godIds,
+        searchText: `unit ${unit.age} ${unit.building} ${(unit.classes || []).join(" ")} ${(unit.counters || []).join(" ")}`,
+      });
+    });
+
+    data.buildings.forEach((building) => {
+      const godIds = gods.filter((god) => availability.get(god.id).buildingIds.has(building.id)).map((god) => god.id);
+      if (!godIds.length) return;
+      entries.push({
+        id: `building:${building.id}`,
+        kind: "building",
+        category: "Buildings",
+        name: building.name,
+        subtitle: `${building.age} · ${building.type}`,
+        entity: building,
+        iconKind: "buildings",
+        godIds,
+        buildingIds: [building.id],
+        searchText: `building ${building.age} ${building.type} ${(building.produces || []).join(" ")}`,
+      });
+    });
+
+    const upgradeEntries = new Map();
+    gods.forEach((god) => {
+      availableBuildings(god, "all").forEach((building) => {
+        upgradesForBuilding(building, god, "all").forEach((upgrade) => {
+          const key = slugify(upgrade.name);
+          const entry = upgradeEntries.get(key) || {
+            id: `upgrade:${key}`,
+            kind: "upgrade",
+            category: "Upgrades",
+            name: upgrade.name,
+            entity: upgrade,
+            iconKind: "technologies",
+            godIds: new Set(),
+            buildingIds: new Set(),
+            buildingNames: new Set(),
+            effects: new Set(),
+          };
+          entry.godIds.add(god.id);
+          entry.buildingIds.add(building.id);
+          entry.buildingNames.add(building.name);
+          if (upgrade.effect) entry.effects.add(upgrade.effect);
+          upgradeEntries.set(key, entry);
+        });
+      });
+    });
+    upgradeEntries.forEach((entry) => {
+      const buildingNames = Array.from(entry.buildingNames).sort((a, b) => a.localeCompare(b));
+      entries.push({
+        ...entry,
+        godIds: Array.from(entry.godIds),
+        buildingIds: Array.from(entry.buildingIds),
+        subtitle: `Researched at ${buildingNames.slice(0, 3).join(", ")}${buildingNames.length > 3 ? "…" : ""}`,
+        searchText: `upgrade technology research ${buildingNames.join(" ")} ${Array.from(entry.effects).join(" ")}`,
+      });
+    });
+
+    return entries;
+  }
+
+  function handleGlobalShortcut(event) {
+    if (event.defaultPrevented || event.isComposing) return;
+    const key = event.key.toLowerCase();
+    const target = event.target;
+    const isEditable = target instanceof HTMLElement && (
+      target.matches("input, textarea, select") || target.isContentEditable
+    );
+    const modifiedK = key === "k" && (event.ctrlKey || event.metaKey) && !event.altKey;
+    const bareShortcut = (key === "k" || key === "/") && !event.ctrlKey && !event.metaKey && !event.altKey && !isEditable;
+    if (!modifiedK && !bareShortcut) return;
+    event.preventDefault();
+    openCommandPalette();
+  }
+
+  function openCommandPalette() {
+    if (!els.commandPalette.open) els.commandPalette.showModal();
+    commandSelectionIndex = 0;
+    renderCommandPaletteResults();
+    requestAnimationFrame(() => {
+      els.commandPaletteInput.focus();
+      els.commandPaletteInput.select();
+    });
+  }
+
+  function closeCommandPalette() {
+    if (els.commandPalette.open) els.commandPalette.close();
+  }
+
+  function handleCommandPaletteKeydown(event) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeCommandPalette();
+      return;
+    }
+    if (!commandResults.length) return;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const direction = event.key === "ArrowDown" ? 1 : -1;
+      commandSelectionIndex = (commandSelectionIndex + direction + commandResults.length) % commandResults.length;
+      renderCommandPaletteResults({ preserveResults: true });
+      scrollActiveCommandIntoView();
+      return;
+    }
+    if (event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      commandSelectionIndex = event.key === "Home" ? 0 : commandResults.length - 1;
+      renderCommandPaletteResults({ preserveResults: true });
+      scrollActiveCommandIntoView();
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      executeCommand(commandResults[commandSelectionIndex]);
+    }
+  }
+
+  function handleCommandPaletteClick(event) {
+    const option = event.target.closest("[data-command-index]");
+    if (!option) return;
+    executeCommand(commandResults[Number(option.dataset.commandIndex)]);
+  }
+
+  function findCommandResults(query) {
+    const normalizedQuery = normalize(query);
+    let matches;
+    if (!normalizedQuery) {
+      matches = commandEntries
+        .filter((entry) => entry.kind === "page" || entry.kind === "god")
+        .sort((a, b) => {
+          if (a.kind !== b.kind) return a.kind === "page" ? -1 : 1;
+          if (a.kind === "god" && (a.entity.id === state.godId || b.entity.id === state.godId)) {
+            return a.entity.id === state.godId ? -1 : 1;
+          }
+          return a.name.localeCompare(b.name);
+        });
+    } else {
+      matches = commandEntries
+        .map((entry) => ({ entry, score: commandMatchScore(entry, normalizedQuery) }))
+        .filter((match) => match.score >= 0)
+        .sort((a, b) => b.score - a.score || a.entry.name.localeCompare(b.entry.name))
+        .slice(0, 70)
+        .map((match) => match.entry);
+    }
+
+    const categoryOrder = ["Pages", "Gods", "Units", "Buildings", "Upgrades"];
+    return categoryOrder.flatMap((category) => matches.filter((entry) => entry.category === category));
+  }
+
+  function commandMatchScore(entry, query) {
+    const name = normalize(entry.name);
+    const subtitle = normalize(entry.subtitle);
+    const haystack = normalize(`${entry.category} ${entry.kind} ${entry.name} ${entry.subtitle} ${entry.searchText || ""}`);
+    const tokens = query.split(" ").filter(Boolean);
+    if (!tokens.every((token) => haystack.includes(token))) return -1;
+    let score = 10;
+    if (name === query) score += 120;
+    else if (name.startsWith(query)) score += 80;
+    else if (name.split(" ").some((word) => word.startsWith(query))) score += 58;
+    else if (name.includes(query)) score += 45;
+    if (subtitle.includes(query)) score += 12;
+    tokens.forEach((token) => {
+      if (name.split(" ").some((word) => word.startsWith(token))) score += 8;
+    });
+    if (entry.godIds?.includes(state.godId)) score += 3;
+    return score;
+  }
+
+  function renderCommandPaletteResults({ preserveResults = false } = {}) {
+    if (!preserveResults) commandResults = findCommandResults(els.commandPaletteInput.value.trim());
+    commandSelectionIndex = Math.min(commandSelectionIndex, Math.max(0, commandResults.length - 1));
+    if (!commandResults.length) {
+      els.commandPaletteResults.innerHTML = `<div class="command-palette-empty">No units, buildings, upgrades, gods, or pages match that search.</div>`;
+      els.commandPaletteInput.removeAttribute("aria-activedescendant");
+      return;
+    }
+
+    let resultIndex = 0;
+    const groups = ["Pages", "Gods", "Units", "Buildings", "Upgrades"]
+      .map((category) => {
+        const groupEntries = commandResults.filter((entry) => entry.category === category);
+        if (!groupEntries.length) return "";
+        const options = groupEntries.map((entry) => {
+          const index = resultIndex++;
+          const active = index === commandSelectionIndex;
+          return `
+            <button class="command-palette-option ${active ? "active" : ""}" id="command-option-${index}" type="button" role="option" aria-selected="${active ? "true" : "false"}" data-command-index="${index}">
+              ${commandEntryIcon(entry)}
+              <span class="command-palette-option-copy">
+                <strong>${escapeHtml(entry.name)}</strong>
+                <small>${escapeHtml(entry.subtitle)}</small>
+              </span>
+              <span class="command-palette-option-type">${escapeHtml(entry.kind === "god" ? "God" : entry.kind[0].toUpperCase() + entry.kind.slice(1))}</span>
+            </button>
+          `;
+        }).join("");
+        return `<section aria-label="${escapeAttribute(category)}"><p class="command-palette-group-label">${escapeHtml(category)}</p>${options}</section>`;
+      })
+      .join("");
+    els.commandPaletteResults.innerHTML = groups;
+    els.commandPaletteInput.setAttribute("aria-activedescendant", `command-option-${commandSelectionIndex}`);
+  }
+
+  function commandEntryIcon(entry) {
+    if (entry.iconKind && entry.entity) return iconMarkup(entry.iconKind, entry.entity, "tiny");
+    return `<span class="entity-icon tiny missing" aria-hidden="true"><span class="icon-fallback">↗</span></span>`;
+  }
+
+  function scrollActiveCommandIntoView() {
+    els.commandPaletteResults.querySelector(".command-palette-option.active")?.scrollIntoView({ block: "nearest" });
+  }
+
+  function executeCommand(entry) {
+    if (!entry) return;
+    closeCommandPalette();
+    if (entry.kind === "page") {
+      navigateTo(entry.viewId);
+      return;
+    }
+    if (entry.kind === "god") {
+      selectGod(entry.entity.id);
+      return;
+    }
+
+    const godId = entry.godIds.includes(state.godId) ? state.godId : entry.godIds[0];
+    if (!setSelectedGodState(godId)) return;
+    const god = selectedGod();
+
+    if (entry.kind === "building") {
+      if (!availableBuildings(god).some((building) => building.id === entry.entity.id)) setCommandAgeFilter("all");
+      state.buildingId = entry.entity.id;
+      localStorage.setItem("aom:selectedBuilding", state.buildingId);
+      render();
+      navigateTo("building-view");
+      revealCommandTarget("buildingId", entry.entity.id);
+      return;
+    }
+
+    if (entry.kind === "unit") {
+      if (!availableInCurrentAge(entry.entity)) setCommandAgeFilter("all");
+      if (!availableUnits(god, state.mode, "all").some((unit) => unit.id === entry.entity.id)) setCommandModeFilter("all");
+      state.unitId = entry.entity.id;
+      localStorage.setItem("aom:selectedUnit", state.unitId);
+      const building = availableBuildings(god, "all").find((candidate) => isProducedAt(entry.entity, candidate));
+      if (building) {
+        state.buildingId = building.id;
+        localStorage.setItem("aom:selectedBuilding", state.buildingId);
+      }
+      render();
+      const viewId = entry.entity.classes.includes("economic") && building ? "building-view" : "unit-view";
+      navigateTo(viewId);
+      revealCommandTarget("unitId", entry.entity.id);
+      return;
+    }
+
+    if (entry.kind === "upgrade") {
+      const upgradeId = slugify(entry.name);
+      const building = availableBuildings(god, "all").find((candidate) =>
+        entry.buildingIds.includes(candidate.id) &&
+        upgradesForBuilding(candidate, god, "all").some((upgrade) => slugify(upgrade.name) === upgradeId),
+      );
+      if (!building) return;
+      setCommandAgeFilter("all");
+      state.buildingId = building.id;
+      localStorage.setItem("aom:selectedBuilding", state.buildingId);
+      render();
+      navigateTo("building-view");
+      revealCommandTarget("upgradeId", upgradeId);
+    }
+  }
+
+  function setCommandAgeFilter(age) {
+    state.age = age;
+    localStorage.setItem("aom:currentAge", state.age);
+  }
+
+  function setCommandModeFilter(mode) {
+    state.mode = mode;
+    localStorage.setItem("aom:counterMode", state.mode);
+  }
+
+  function revealCommandTarget(dataKey, value) {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const scope = byId(activeViewId()) || document;
+      const target = Array.from(scope.querySelectorAll(`[data-${dataKey.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}]`))
+        .find((candidate) => candidate.dataset[dataKey] === value);
+      if (!target) return;
+      target.scrollIntoView({ block: "center", behavior: "smooth" });
+      target.classList.remove("command-target");
+      void target.offsetWidth;
+      target.classList.add("command-target");
+      if (dataKey === "upgradeId") target.focus({ preventScroll: true });
+    }));
+  }
+
   function renderHome() {
     const term = normalize(els.homeGodSearch.value.trim());
     const allMajorGods = majorGods();
@@ -493,15 +858,20 @@
   }
 
   function selectGod(godId) {
-    if (!godById.has(godId)) return;
+    if (!setSelectedGodState(godId)) return;
+    render();
+    navigateTo("god-view");
+  }
+
+  function setSelectedGodState(godId) {
+    if (!godById.has(godId)) return false;
     state.godId = godId;
     state.buildingId = "";
     state.unitId = "";
     localStorage.setItem("aom:selectedGod", state.godId);
     localStorage.removeItem("aom:selectedBuilding");
     localStorage.removeItem("aom:selectedUnit");
-    render();
-    navigateTo("god-view");
+    return true;
   }
 
   function selectedGod() {
@@ -1251,9 +1621,9 @@
     }
   }
 
-  function upgradesForBuilding(building, god) {
+  function upgradesForBuilding(building, god, ageLimit = state.age) {
     const buildingName = normalize(building.name);
-    const technologies = availableTechnologies(god, "all").filter((tech) =>
+    const technologies = availableTechnologies(god, "all", ageLimit).filter((tech) =>
       technologyBuildingNames(tech).some((name) => normalize(name) === buildingName),
     );
     const baseUpgrades = (building.upgrades || []).filter((name) => !(name === "Myth technologies" && technologies.length));
@@ -1346,7 +1716,7 @@
 
   function upgradeIcon(upgrade) {
     const content = `${iconMarkup("technologies", upgrade, "upgrade")}${upgradeTooltip(upgrade)}`;
-    const attributes = `class="upgrade-icon-button" aria-label="${escapeAttribute(upgrade.name)}"`;
+    const attributes = `class="upgrade-icon-button" data-upgrade-id="${escapeAttribute(slugify(upgrade.name))}" aria-label="${escapeAttribute(upgrade.name)}"`;
 
     if (upgrade.source) {
       return `<a ${attributes} href="${escapeAttribute(upgrade.source)}" target="_blank" rel="noreferrer">${content}</a>`;
