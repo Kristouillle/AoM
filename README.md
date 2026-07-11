@@ -12,6 +12,8 @@ The first version is a browser-based local app so it opens without installing El
 
 - Select a major god and view its pantheon, focus notes, buildings, and roster.
 - Press `K`, `/`, or `Ctrl/Cmd+K` to jump to any page, major god, unit, building, or upgrade.
+- Bookmark and share entity URLs; browser Back and Forward restore the selected god and entity context.
+- Favourite command-palette entries and reopen recent commands without searching again.
 - Click a building to see produced units and known upgrades.
 - Search the selected god's local library.
 - Search an enemy unit or class, such as `cavalry`, `archer`, `myth`, `Toxotes`, or `Hippeus`, and get counter options from the selected god.
@@ -19,6 +21,8 @@ The first version is a browser-based local app so it opens without installing El
 - Local unit and building icon tiles for most seeded units and buildings.
 - Unit stat panels from building unit chips, roster cards, and counter results.
 - Upgrade rows with imported effect text where the wiki exposes it.
+- Practice saved build orders as a timed checklist with target-time guidance and local best times.
+- Build rough enemy compositions using `Scout`, `Core`, and `Mass` weights to get coverage-based counter recommendations without guessing exact unit counts.
 
 ## Data Strategy
 

@@ -20,6 +20,9 @@
     unitId: localStorage.getItem("aom:selectedUnit") || "",
     buildOrderId: localStorage.getItem("aom:selectedBuildOrder") || "",
     matchupBuildOrderId: localStorage.getItem("aom:matchupBuildOrder") || "__suggested",
+    enemyComposition: readEnemyComposition(),
+    enemyPickerOpen: false,
+    enemyPickerBuilding: localStorage.getItem("aom:enemyPickerBuilding") || "all",
     buildOrders: [],
     buildOrdersLoaded: false,
     buildOrderStorageMode: "indexedDB",
@@ -31,6 +34,16 @@
   let commandEntries = [];
   let commandResults = [];
   let commandSelectionIndex = 0;
+  let commandFavoriteIds = readStoredStringArray("aom:commandFavorites");
+  let commandHistoryIds = readStoredStringArray("aom:commandHistory");
+  const practiceState = {
+    order: null,
+    running: false,
+    elapsedMs: 0,
+    startedAt: 0,
+    completed: new Set(),
+    timerId: null,
+  };
 
   const els = {
     dataStatus: byId("data-status"),
@@ -47,6 +60,7 @@
     buildOrderImport: byId("build-order-import"),
     buildOrderImportAll: byId("build-order-import-all"),
     buildOrderDelete: byId("build-order-delete"),
+    buildOrderPractice: byId("build-order-practice"),
     buildOrderTitle: byId("build-order-title"),
     buildOrderAuthor: byId("build-order-author"),
     buildOrderGod: byId("build-order-god"),
@@ -62,8 +76,10 @@
     buildOrderStatus: byId("build-order-status"),
     enemyGodSelect: byId("enemy-god-select"),
     enemySearch: byId("enemy-search"),
-    enemyUnits: byId("enemy-units"),
     enemyUnitPicker: byId("enemy-unit-picker"),
+    enemyPickerToggle: byId("enemy-picker-toggle"),
+    enemyComposition: byId("enemy-composition"),
+    compositionAdd: byId("composition-add"),
     matchupBrief: byId("matchup-brief"),
     modeButtons: Array.from(document.querySelectorAll(".mode-button")),
     ageButtons: Array.from(document.querySelectorAll(".age-button")),
@@ -95,6 +111,20 @@
     commandPaletteInput: byId("command-palette-input"),
     commandPaletteClose: byId("command-palette-close"),
     commandPaletteResults: byId("command-palette-results"),
+    practiceDialog: byId("practice-dialog"),
+    practiceClose: byId("practice-close"),
+    practiceTitle: byId("practice-title"),
+    practiceSubtitle: byId("practice-subtitle"),
+    practiceTimer: byId("practice-timer"),
+    practiceProgressLabel: byId("practice-progress-label"),
+    practiceBestTime: byId("practice-best-time"),
+    practiceProgressBar: byId("practice-progress-bar"),
+    practiceCurrent: byId("practice-current"),
+    practiceToggle: byId("practice-toggle"),
+    practiceNext: byId("practice-next"),
+    practiceReset: byId("practice-reset"),
+    practiceSteps: byId("practice-steps"),
+    practiceGoals: byId("practice-goals"),
   };
 
   const { pantheonById, godById, unitById, buildingById, technologyById } = runtimeIndexes;
@@ -125,6 +155,16 @@
     ["ships", "ship"],
     ["boats", "ship"],
   ]);
+  const enemyPickerCategories = [
+    { id: "all", label: "All", iconKey: "" },
+    { id: "infantry", label: "Infantry", iconKey: "infantry" },
+    { id: "archer", label: "Archers", iconKey: "archer" },
+    { id: "cavalry", label: "Cavalry", iconKey: "cavalry" },
+    { id: "myth", label: "Myth", iconKey: "myth-unit" },
+    { id: "hero", label: "Heroes", iconKey: "hero" },
+    { id: "siege", label: "Siege", iconKey: "siege-weapon" },
+    { id: "ship", label: "Ships", iconKey: "ship" },
+  ];
   const resourceTypes = [
     { key: "food", label: "Food", pattern: /^food$/ },
     { key: "wood", label: "Wood", pattern: /^wood$/ },
@@ -178,11 +218,12 @@
 
   function init() {
     populateEnemyGodSelect();
-    populateEnemyDatalist();
     populateBuildOrderSelects();
     commandEntries = buildCommandEntries();
+    applyRouteToState(currentRoute());
     wireEvents();
     render();
+    revealRouteTarget(currentRoute());
     loadBuildOrders();
   }
 
@@ -306,20 +347,6 @@
     els.enemyGodSelect.value = state.enemyGodId;
   }
 
-  function populateEnemyDatalist() {
-    els.enemyUnits.textContent = "";
-    const labels = unique([
-      ...data.counterProfiles.map((profile) => profile.name),
-      ...enemyLookupUnits().map((unit) => unit.name),
-    ]).sort((a, b) => a.localeCompare(b));
-
-    labels.forEach((label) => {
-      const option = document.createElement("option");
-      option.value = label;
-      els.enemyUnits.append(option);
-    });
-  }
-
   function populateBuildOrderSelects() {
     els.buildOrderGod.textContent = "";
     majorGods().forEach((god) => {
@@ -343,7 +370,7 @@
   }
 
   function wireEvents() {
-    window.addEventListener("hashchange", renderActiveView);
+    window.addEventListener("hashchange", handleRouteChange);
     document.addEventListener("keydown", handleGlobalShortcut);
     els.commandPaletteTrigger.addEventListener("click", openCommandPalette);
     els.commandPaletteClose.addEventListener("click", closeCommandPalette);
@@ -373,24 +400,57 @@
     els.buildOrderImport.addEventListener("click", importBuildOrderCode);
     els.buildOrderImportAll.addEventListener("click", importBuildOrderLibraryCode);
     els.buildOrderDelete.addEventListener("click", deleteSelectedBuildOrder);
+    els.buildOrderPractice.addEventListener("click", openPracticeMode);
     els.buildOrderForm.addEventListener("submit", saveBuildOrderFromForm);
     els.buildOrderForm.addEventListener("click", handleBuildOrderFormClick);
     els.buildOrderList.addEventListener("click", handleBuildOrderListClick);
     els.enemyGodSelect.addEventListener("change", () => {
       state.enemyGodId = els.enemyGodSelect.value;
+      state.enemyComposition = [];
+      state.enemyPickerOpen = true;
       localStorage.setItem("aom:enemyGod", state.enemyGodId);
-      populateEnemyDatalist();
+      persistEnemyComposition();
       renderCounters();
     });
-    els.enemySearch.addEventListener("input", renderCounters);
+    els.enemySearch.addEventListener("focus", () => {
+      state.enemyPickerOpen = true;
+      renderCounters();
+    });
+    els.enemySearch.addEventListener("input", () => {
+      state.enemyPickerOpen = true;
+      renderCounters();
+    });
+    els.enemySearch.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        state.enemyPickerOpen = false;
+        renderCounters();
+        return;
+      }
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      addEnemyCompositionTarget();
+    });
+    els.enemyPickerToggle.addEventListener("click", () => {
+      state.enemyPickerOpen = !state.enemyPickerOpen;
+      renderCounters();
+      if (state.enemyPickerOpen) requestAnimationFrame(() => els.enemySearch.focus());
+    });
+    els.compositionAdd.addEventListener("click", addEnemyCompositionTarget);
+    els.enemyComposition.addEventListener("click", handleEnemyCompositionClick);
     els.matchupBrief.addEventListener("change", handleMatchupBuildOrderChange);
     els.matchupBrief.addEventListener("click", handleMatchupBuildOrderClick);
+    els.practiceClose.addEventListener("click", () => els.practiceDialog.close());
+    els.practiceToggle.addEventListener("click", togglePracticeTimer);
+    els.practiceNext.addEventListener("click", completeCurrentPracticeStep);
+    els.practiceReset.addEventListener("click", resetPracticeMode);
+    els.practiceSteps.addEventListener("click", handlePracticeStepClick);
+    els.practiceDialog.addEventListener("keydown", handlePracticeKeydown);
+    els.practiceDialog.addEventListener("close", pausePracticeTimer);
 
     els.ageButtons.forEach((button) => {
       button.addEventListener("click", () => {
         state.age = button.dataset.age;
         localStorage.setItem("aom:currentAge", state.age);
-        populateEnemyDatalist();
         renderAgeButtons();
         renderSummary();
         renderBuildings();
@@ -439,7 +499,9 @@
     document.body.classList.toggle("has-roster-filters", Boolean(viewContext.usesRosterFilters));
     els.viewContextLabel.textContent = viewContext.label;
     els.viewContextDescription.textContent = viewContext.description;
-    document.title = `${viewContext.label} · ${selectedGod().name} | AoM Companion`;
+    const route = currentRoute();
+    const routeEntry = commandEntries.find((entry) => entry.kind === route.kind && (entry.entity?.id === route.id || entry.id === `${route.kind}:${route.id}`));
+    document.title = `${routeEntry?.name || viewContext.label} · ${selectedGod().name} | AoM Companion`;
     els.viewPanels.forEach((panel) => {
       panel.classList.toggle("active", panel.id === viewId);
     });
@@ -452,17 +514,135 @@
   }
 
   function activeViewId() {
-    const hashId = window.location.hash.replace(/^#/, "");
-    const validIds = new Set(els.viewPanels.map((panel) => panel.id));
-    return validIds.has(hashId) ? hashId : "home-view";
+    return currentRoute().viewId;
   }
 
   function navigateTo(viewId) {
     if (window.location.hash === `#${viewId}`) {
-      renderActiveView();
+      handleRouteChange();
       return;
     }
     window.location.hash = viewId;
+  }
+
+  function currentRoute() {
+    const validIds = new Set(els.viewPanels.map((panel) => panel.id));
+    const rawHash = window.location.hash.replace(/^#/, "");
+    const [rawPath, rawQuery = ""] = rawHash.split("?");
+    let path;
+    try {
+      path = decodeURIComponent(rawPath || "");
+    } catch (error) {
+      path = rawPath || "";
+    }
+    if (validIds.has(path)) return { viewId: path, kind: "page", id: path, params: new URLSearchParams(rawQuery) };
+
+    const [kind, id = ""] = path.split("/");
+    const viewByKind = {
+      god: "god-view",
+      building: "building-view",
+      unit: "unit-view",
+      upgrade: "building-view",
+    };
+    const params = new URLSearchParams(rawQuery);
+    let viewId = viewByKind[kind] || "home-view";
+    if (kind === "unit" && params.get("view") === "building") viewId = "building-view";
+    return { viewId, kind: viewByKind[kind] ? kind : "page", id, params };
+  }
+
+  function entityRouteHash(kind, id, options = {}) {
+    const params = new URLSearchParams();
+    if (options.godId) params.set("god", options.godId);
+    if (options.buildingId) params.set("building", options.buildingId);
+    if (options.viewId === "building-view" && kind === "unit") params.set("view", "building");
+    const query = params.toString();
+    return `#${kind}/${encodeURIComponent(id)}${query ? `?${query}` : ""}`;
+  }
+
+  function navigateEntity(kind, id, options = {}) {
+    const hash = entityRouteHash(kind, id, options);
+    if (window.location.hash === hash) {
+      handleRouteChange();
+      return;
+    }
+    window.location.hash = hash;
+  }
+
+  function handleRouteChange() {
+    const route = currentRoute();
+    applyRouteToState(route);
+    render();
+    revealRouteTarget(route);
+  }
+
+  function applyRouteToState(route) {
+    if (!route.id || route.kind === "page") return;
+    if (route.kind === "god") {
+      const god = godById.get(route.id);
+      if (god?.tier === "major") setSelectedGodState(god.id);
+      return;
+    }
+
+    const commandEntry = commandEntries.find((entry) => entry.kind === route.kind && (
+      entry.entity?.id === route.id || entry.id === `${route.kind}:${route.id}`
+    ));
+    if (!commandEntry?.godIds?.length) return;
+    const requestedGodId = route.params.get("god");
+    const godId = commandEntry.godIds.includes(requestedGodId)
+      ? requestedGodId
+      : commandEntry.godIds.includes(state.godId)
+        ? state.godId
+        : commandEntry.godIds[0];
+    if (!setSelectedGodState(godId)) return;
+    const god = selectedGod();
+
+    if (route.kind === "building") {
+      const building = buildingById.get(route.id);
+      if (!building) return;
+      if (!availableBuildings(god).some((candidate) => candidate.id === building.id)) setCommandAgeFilter("all");
+      state.buildingId = building.id;
+      localStorage.setItem("aom:selectedBuilding", state.buildingId);
+      return;
+    }
+
+    if (route.kind === "unit") {
+      const unit = unitById.get(route.id);
+      if (!unit) return;
+      if (!availableInCurrentAge(unit)) setCommandAgeFilter("all");
+      if (!availableUnits(god, state.mode, "all").some((candidate) => candidate.id === unit.id)) setCommandModeFilter("all");
+      state.unitId = unit.id;
+      localStorage.setItem("aom:selectedUnit", state.unitId);
+      const requestedBuildingId = route.params.get("building");
+      const building = availableBuildings(god, "all").find((candidate) =>
+        (candidate.id === requestedBuildingId || !requestedBuildingId) && isProducedAt(unit, candidate),
+      ) || availableBuildings(god, "all").find((candidate) => isProducedAt(unit, candidate));
+      if (building) {
+        state.buildingId = building.id;
+        localStorage.setItem("aom:selectedBuilding", state.buildingId);
+      }
+      return;
+    }
+
+    if (route.kind === "upgrade") {
+      setCommandAgeFilter("all");
+      const requestedBuildingId = route.params.get("building");
+      const building = availableBuildings(god, "all").find((candidate) =>
+        (!requestedBuildingId || candidate.id === requestedBuildingId) &&
+        upgradesForBuilding(candidate, god, "all").some((upgrade) => slugify(upgrade.name) === route.id),
+      ) || availableBuildings(god, "all").find((candidate) =>
+        upgradesForBuilding(candidate, god, "all").some((upgrade) => slugify(upgrade.name) === route.id),
+      );
+      if (building) {
+        state.buildingId = building.id;
+        localStorage.setItem("aom:selectedBuilding", state.buildingId);
+      }
+    }
+  }
+
+  function revealRouteTarget(route) {
+    if (route.kind === "building") revealCommandTarget("buildingId", route.id);
+    if (route.kind === "unit") revealCommandTarget("unitId", route.id);
+    if (route.kind === "upgrade") revealCommandTarget("upgradeId", route.id);
   }
 
   function buildCommandEntries() {
@@ -573,6 +753,7 @@
 
   function handleGlobalShortcut(event) {
     if (event.defaultPrevented || event.isComposing) return;
+    if (els.practiceDialog.open) return;
     const key = event.key.toLowerCase();
     const target = event.target;
     const isEditable = target instanceof HTMLElement && (
@@ -623,11 +804,22 @@
     }
     if (event.key === "Enter") {
       event.preventDefault();
+      if (event.altKey) {
+        toggleCommandFavorite(commandResults[commandSelectionIndex]?.id);
+        renderCommandPaletteResults();
+        return;
+      }
       executeCommand(commandResults[commandSelectionIndex]);
     }
   }
 
   function handleCommandPaletteClick(event) {
+    const favoriteButton = event.target.closest("[data-command-favorite-id]");
+    if (favoriteButton) {
+      toggleCommandFavorite(favoriteButton.dataset.commandFavoriteId);
+      renderCommandPaletteResults();
+      return;
+    }
     const option = event.target.closest("[data-command-index]");
     if (!option) return;
     executeCommand(commandResults[Number(option.dataset.commandIndex)]);
@@ -635,26 +827,39 @@
 
   function findCommandResults(query) {
     const normalizedQuery = normalize(query);
-    let matches;
     if (!normalizedQuery) {
-      matches = commandEntries
-        .filter((entry) => entry.kind === "page" || entry.kind === "god")
+      const entryById = new Map(commandEntries.map((entry) => [entry.id, entry]));
+      const favorites = commandFavoriteIds.map((id) => entryById.get(id)).filter(Boolean).map((entry) => ({ ...entry, resultCategory: "Favorites" }));
+      const favoriteSet = new Set(favorites.map((entry) => entry.id));
+      const recent = commandHistoryIds
+        .filter((id) => !favoriteSet.has(id))
+        .map((id) => entryById.get(id))
+        .filter(Boolean)
+        .slice(0, 8)
+        .map((entry) => ({ ...entry, resultCategory: "Recent" }));
+      const featuredSet = new Set([...favoriteSet, ...recent.map((entry) => entry.id)]);
+      const pages = commandEntries
+        .filter((entry) => entry.kind === "page" && !featuredSet.has(entry.id))
+        .map((entry) => ({ ...entry, resultCategory: "Pages" }));
+      const gods = commandEntries
+        .filter((entry) => entry.kind === "god" && !featuredSet.has(entry.id))
         .sort((a, b) => {
-          if (a.kind !== b.kind) return a.kind === "page" ? -1 : 1;
-          if (a.kind === "god" && (a.entity.id === state.godId || b.entity.id === state.godId)) {
+          if (a.entity.id === state.godId || b.entity.id === state.godId) {
             return a.entity.id === state.godId ? -1 : 1;
           }
           return a.name.localeCompare(b.name);
-        });
-    } else {
-      matches = commandEntries
-        .map((entry) => ({ entry, score: commandMatchScore(entry, normalizedQuery) }))
-        .filter((match) => match.score >= 0)
-        .sort((a, b) => b.score - a.score || a.entry.name.localeCompare(b.entry.name))
-        .slice(0, 70)
-        .map((match) => match.entry);
+        })
+        .slice(0, 8)
+        .map((entry) => ({ ...entry, resultCategory: "Gods" }));
+      return [...favorites, ...recent, ...pages, ...gods];
     }
 
+    const matches = commandEntries
+      .map((entry) => ({ entry, score: commandMatchScore(entry, normalizedQuery) }))
+      .filter((match) => match.score >= 0)
+      .sort((a, b) => b.score - a.score || a.entry.name.localeCompare(b.entry.name))
+      .slice(0, 70)
+      .map((match) => match.entry);
     const categoryOrder = ["Pages", "Gods", "Units", "Buildings", "Upgrades"];
     return categoryOrder.flatMap((category) => matches.filter((entry) => entry.category === category));
   }
@@ -675,6 +880,7 @@
       if (name.split(" ").some((word) => word.startsWith(token))) score += 8;
     });
     if (entry.godIds?.includes(state.godId)) score += 3;
+    if (commandFavoriteIds.includes(entry.id)) score += 6;
     return score;
   }
 
@@ -688,22 +894,26 @@
     }
 
     let resultIndex = 0;
-    const groups = ["Pages", "Gods", "Units", "Buildings", "Upgrades"]
+    const groups = ["Favorites", "Recent", "Pages", "Gods", "Units", "Buildings", "Upgrades"]
       .map((category) => {
-        const groupEntries = commandResults.filter((entry) => entry.category === category);
+        const groupEntries = commandResults.filter((entry) => (entry.resultCategory || entry.category) === category);
         if (!groupEntries.length) return "";
         const options = groupEntries.map((entry) => {
           const index = resultIndex++;
           const active = index === commandSelectionIndex;
+          const favorite = commandFavoriteIds.includes(entry.id);
           return `
-            <button class="command-palette-option ${active ? "active" : ""}" id="command-option-${index}" type="button" role="option" aria-selected="${active ? "true" : "false"}" data-command-index="${index}">
-              ${commandEntryIcon(entry)}
-              <span class="command-palette-option-copy">
-                <strong>${escapeHtml(entry.name)}</strong>
-                <small>${escapeHtml(entry.subtitle)}</small>
-              </span>
-              <span class="command-palette-option-type">${escapeHtml(entry.kind === "god" ? "God" : entry.kind[0].toUpperCase() + entry.kind.slice(1))}</span>
-            </button>
+            <div class="command-palette-option ${active ? "active" : ""}" id="command-option-${index}" role="option" aria-selected="${active ? "true" : "false"}">
+              <button class="command-palette-option-main" type="button" data-command-index="${index}">
+                ${commandEntryIcon(entry)}
+                <span class="command-palette-option-copy">
+                  <strong>${escapeHtml(entry.name)}</strong>
+                  <small>${escapeHtml(entry.subtitle)}</small>
+                </span>
+                <span class="command-palette-option-type">${escapeHtml(entry.kind === "god" ? "God" : entry.kind[0].toUpperCase() + entry.kind.slice(1))}</span>
+              </button>
+              <button class="command-palette-favorite ${favorite ? "active" : ""}" type="button" data-command-favorite-id="${escapeAttribute(entry.id)}" aria-label="${favorite ? "Remove from favourites" : "Add to favourites"}" aria-pressed="${favorite ? "true" : "false"}">★</button>
+            </div>
           `;
         }).join("");
         return `<section aria-label="${escapeAttribute(category)}"><p class="command-palette-group-label">${escapeHtml(category)}</p>${options}</section>`;
@@ -724,6 +934,7 @@
 
   function executeCommand(entry) {
     if (!entry) return;
+    recordCommandUse(entry.id);
     closeCommandPalette();
     if (entry.kind === "page") {
       navigateTo(entry.viewId);
@@ -743,8 +954,7 @@
       state.buildingId = entry.entity.id;
       localStorage.setItem("aom:selectedBuilding", state.buildingId);
       render();
-      navigateTo("building-view");
-      revealCommandTarget("buildingId", entry.entity.id);
+      navigateEntity("building", entry.entity.id, { godId: god.id });
       return;
     }
 
@@ -760,8 +970,7 @@
       }
       render();
       const viewId = entry.entity.classes.includes("economic") && building ? "building-view" : "unit-view";
-      navigateTo(viewId);
-      revealCommandTarget("unitId", entry.entity.id);
+      navigateEntity("unit", entry.entity.id, { godId: god.id, buildingId: building?.id, viewId });
       return;
     }
 
@@ -776,8 +985,30 @@
       state.buildingId = building.id;
       localStorage.setItem("aom:selectedBuilding", state.buildingId);
       render();
-      navigateTo("building-view");
-      revealCommandTarget("upgradeId", upgradeId);
+      navigateEntity("upgrade", upgradeId, { godId: god.id, buildingId: building.id });
+    }
+  }
+
+  function toggleCommandFavorite(entryId) {
+    if (!entryId || !commandEntries.some((entry) => entry.id === entryId)) return;
+    commandFavoriteIds = commandFavoriteIds.includes(entryId)
+      ? commandFavoriteIds.filter((id) => id !== entryId)
+      : [entryId, ...commandFavoriteIds].slice(0, 40);
+    localStorage.setItem("aom:commandFavorites", JSON.stringify(commandFavoriteIds));
+  }
+
+  function recordCommandUse(entryId) {
+    if (!entryId) return;
+    commandHistoryIds = [entryId, ...commandHistoryIds.filter((id) => id !== entryId)].slice(0, 16);
+    localStorage.setItem("aom:commandHistory", JSON.stringify(commandHistoryIds));
+  }
+
+  function readStoredStringArray(key) {
+    try {
+      const value = JSON.parse(localStorage.getItem(key) || "[]");
+      return Array.isArray(value) ? unique(value.filter((item) => typeof item === "string")) : [];
+    } catch (error) {
+      return [];
     }
   }
 
@@ -860,7 +1091,7 @@
   function selectGod(godId) {
     if (!setSelectedGodState(godId)) return;
     render();
-    navigateTo("god-view");
+    navigateEntity("god", godId);
   }
 
   function setSelectedGodState(godId) {
@@ -999,6 +1230,7 @@
         localStorage.setItem("aom:selectedBuilding", state.buildingId);
         localStorage.removeItem("aom:selectedUnit");
         renderBuildings();
+        navigateEntity("building", state.buildingId, { godId: god.id });
       });
     });
 
@@ -1060,7 +1292,7 @@
   function renderUnits() {
     const god = selectedGod();
     const units = availableUnits(god)
-      .filter((unit) => !unit.classes.includes("economic"))
+      .filter((unit) => !unit.classes.includes("economic") || unit.id === state.unitId)
       .sort(sortUnits);
     const selectedUnit = selectedRosterUnit(units);
     const groups = groupBy(units, (unit) => unit.building || "Other");
@@ -1107,10 +1339,14 @@
     const god = selectedGod();
     const query = els.enemySearch.value.trim();
     const enemyGod = selectedEnemyGod();
-    const target = resolveTarget(query, enemyGod);
-    const results = target ? counterResultsForTarget(god, target) : [];
+    const singleTarget = resolveTarget(query, enemyGod);
+    const composition = compositionTargets(enemyGod);
+    const target = composition.length ? combinedCompositionTarget(composition) : singleTarget;
+    const results = composition.length ? counterResultsForComposition(god, composition) : target ? counterResultsForTarget(god, target) : [];
+    els.enemySearch.placeholder = enemyGod ? `Search ${enemyGod.name} units or buildings…` : "Search units, cavalry, Temple…";
 
-    renderEnemyUnitPicker(enemyGod, query, target);
+    renderEnemyComposition(composition, singleTarget);
+    renderEnemyUnitPicker(enemyGod, query, singleTarget);
     renderMatchupBrief(god, enemyGod, target, results);
 
     if (!target) {
@@ -1129,15 +1365,18 @@
       return;
     }
 
-    els.counterTitle.textContent = `Counter ${target.name}${enemyGod ? ` from ${enemyGod.name}` : ""}`;
+    els.counterTitle.textContent = composition.length
+      ? `Counter ${composition.length}-part enemy composition`
+      : `Counter ${target.name}${enemyGod ? ` from ${enemyGod.name}` : ""}`;
     els.counterCount.textContent = `${results.length} matches`;
     els.targetSummary.innerHTML = [
       enemyGod ? tag(`Enemy: ${enemyGod.name}`, "red") : "",
       enemyGod ? tag(pantheonName(enemyGod.pantheon), "green") : "",
       tag(currentAgeLabel(), "gold"),
-      ...target.tags.map((item) => tag(item, "blue")),
-      target.unit ? tag(target.unit.age, "gold") : "",
-      target.unit ? tag(target.unit.building, "green") : "",
+      composition.length ? tag(`${composition.length} threat${composition.length === 1 ? "" : "s"}`, "red") : "",
+      ...target.tags.slice(0, 8).map((item) => tag(item, "blue")),
+      !composition.length && target.unit ? tag(target.unit.age, "gold") : "",
+      !composition.length && target.unit ? tag(target.unit.building, "green") : "",
     ].join("");
 
     els.counterResults.innerHTML = results.length
@@ -1155,6 +1394,147 @@
       .map((unit) => scoreCounter(unit, target))
       .filter((result) => result.score > 0)
       .sort((a, b) => b.score - a.score || sortUnits(a.unit, b.unit));
+  }
+
+  function counterResultsForComposition(god, composition) {
+    const totalWeight = composition.reduce((total, item) => total + item.weight, 0) || 1;
+    return availableUnits(god)
+      .filter((unit) => !unit.classes.includes("economic"))
+      .map((unit) => {
+        const scoredTargets = composition.map((item) => ({ item, result: scoreCounter(unit, item.target) }));
+        const covered = scoredTargets.filter(({ result }) => result.score > 0);
+        const weightedScore = scoredTargets.reduce((total, { item, result }) => total + result.score * item.weight, 0) / totalWeight;
+        const coverageRatio = composition.length ? covered.length / composition.length : 0;
+        const score = Math.round(weightedScore + coverageRatio * 14);
+        return {
+          unit,
+          score,
+          confidence: counterConfidence(score),
+          matches: unique(covered.flatMap(({ result }) => result.matches)).slice(0, 5),
+          reasons: unique(covered.flatMap(({ item, result }) => result.reasons.map((reason) => `${item.target.name}: ${reason}`))).slice(0, 4),
+          coverageText: `Covers ${covered.length} of ${composition.length} threats`,
+        };
+      })
+      .filter((result) => result.score > 0)
+      .sort((a, b) => b.score - a.score || sortUnits(a.unit, b.unit));
+  }
+
+  function combinedCompositionTarget(composition) {
+    return {
+      name: "enemy composition",
+      tags: unique(composition.flatMap((item) => item.target.tags)),
+      unit: null,
+      composition: true,
+    };
+  }
+
+  function compositionTargets(enemyGod = selectedEnemyGod()) {
+    return state.enemyComposition
+      .map((item) => {
+        const target = item.kind === "unit"
+          ? (() => {
+              const unit = unitById.get(item.id);
+              if (!unit) return null;
+              if (enemyGod && !availableUnits(enemyGod, "all", "all").some((candidate) => candidate.id === unit.id)) return null;
+              return { name: unit.name, tags: unique([...unit.classes, unit.id]), unit };
+            })()
+          : (() => {
+              const profile = profileById.get(item.id);
+              return profile ? { name: profile.name, tags: profile.tags, unit: null } : null;
+            })();
+        return target ? { ...item, target } : null;
+      })
+      .filter(Boolean);
+  }
+
+  function renderEnemyComposition(composition, pendingTarget) {
+    const pendingKey = pendingTarget ? compositionKeyForTarget(pendingTarget) : "";
+    const pendingExists = pendingKey && state.enemyComposition.some((item) => item.key === pendingKey);
+    els.compositionAdd.disabled = !pendingTarget || (state.enemyComposition.length >= 8 && !pendingExists);
+    els.compositionAdd.title = state.enemyComposition.length >= 8 && !pendingExists ? "Remove a threat before adding another." : "";
+    els.enemyComposition.innerHTML = `
+      <div class="composition-heading">
+        <div><p class="eyebrow">Enemy composition</p><h3>${composition.length ? `${composition.length} scouted threat${composition.length === 1 ? "" : "s"}` : "Build a rough read"}</h3></div>
+        <div class="composition-heading-actions">
+          <span>Use Scout / Core / Mass—exact counts are not required.</span>
+          ${composition.length ? `<button class="text-button" type="button" data-composition-clear>Clear all</button>` : ""}
+        </div>
+      </div>
+      <div class="composition-list">
+        ${composition.length ? composition.map(compositionItemMarkup).join("") : `<p class="composition-empty">Search or click an enemy unit, then add it here. Recommendations will balance coverage across the full composition.</p>`}
+      </div>
+    `;
+  }
+
+  function compositionItemMarkup(item) {
+    const weightOptions = [
+      { value: 1, label: "Scout" },
+      { value: 2, label: "Core" },
+      { value: 3, label: "Mass" },
+    ];
+    return `
+      <article class="composition-item">
+        ${item.target.unit ? iconMarkup("units", item.target.unit, "tiny") : `<span class="entity-icon tiny missing"><span class="icon-fallback">?</span></span>`}
+        <div class="composition-item-copy"><strong>${escapeHtml(item.target.name)}</strong><small>${escapeHtml(item.target.unit ? `${item.target.unit.age} · ${item.target.unit.building}` : "Threat class")}</small></div>
+        <div class="composition-weight" role="group" aria-label="Presence of ${escapeAttribute(item.target.name)}">
+          ${weightOptions.map((option) => `<button class="${item.weight === option.value ? "active" : ""}" type="button" data-composition-key="${escapeAttribute(item.key)}" data-composition-weight="${option.value}" aria-pressed="${item.weight === option.value ? "true" : "false"}">${option.label}</button>`).join("")}
+        </div>
+        <button class="composition-remove" type="button" data-composition-remove="${escapeAttribute(item.key)}" aria-label="Remove ${escapeAttribute(item.target.name)}">×</button>
+      </article>
+    `;
+  }
+
+  function addEnemyCompositionTarget() {
+    const target = resolveTarget(els.enemySearch.value.trim(), selectedEnemyGod());
+    if (!target) return;
+    const key = compositionKeyForTarget(target);
+    const [kind, id] = key.split(":");
+    const existing = state.enemyComposition.find((item) => item.key === key);
+    if (existing) existing.weight = Math.min(3, existing.weight + 1);
+    else if (state.enemyComposition.length < 8) state.enemyComposition.push({ key, kind, id, weight: 2 });
+    persistEnemyComposition();
+    els.enemySearch.value = "";
+    renderCounters();
+  }
+
+  function compositionKeyForTarget(target) {
+    const kind = target.unit ? "unit" : "profile";
+    const id = target.unit?.id || data.counterProfiles.find((profile) => normalize(profile.name) === normalize(target.name))?.id || slugify(target.name);
+    return `${kind}:${id}`;
+  }
+
+  function handleEnemyCompositionClick(event) {
+    if (event.target.closest("[data-composition-clear]")) {
+      state.enemyComposition = [];
+    } else {
+      const removeButton = event.target.closest("[data-composition-remove]");
+      const weightButton = event.target.closest("[data-composition-weight]");
+      if (removeButton) state.enemyComposition = state.enemyComposition.filter((item) => item.key !== removeButton.dataset.compositionRemove);
+      if (weightButton) {
+        const item = state.enemyComposition.find((candidate) => candidate.key === weightButton.dataset.compositionKey);
+        if (item) item.weight = Number(weightButton.dataset.compositionWeight);
+      }
+    }
+    persistEnemyComposition();
+    renderCounters();
+  }
+
+  function persistEnemyComposition() {
+    localStorage.setItem("aom:enemyComposition", JSON.stringify(state.enemyComposition));
+  }
+
+  function readEnemyComposition() {
+    try {
+      const value = JSON.parse(localStorage.getItem("aom:enemyComposition") || "[]");
+      return Array.isArray(value)
+        ? value
+            .filter((item) => item && ["unit", "profile"].includes(item.kind) && typeof item.id === "string")
+            .map((item) => ({ key: `${item.kind}:${item.id}`, kind: item.kind, id: item.id, weight: Math.max(1, Math.min(3, Number(item.weight) || 2)) }))
+            .slice(0, 8)
+        : [];
+    } catch (error) {
+      return [];
+    }
   }
 
   function renderMatchupBrief(god, enemyGod, target, exactResults) {
@@ -1524,64 +1904,139 @@
   }
 
   function renderEnemyUnitPicker(enemyGod, query, target) {
+    els.enemyUnitPicker.hidden = !state.enemyPickerOpen;
+    els.enemySearch.setAttribute("aria-expanded", state.enemyPickerOpen ? "true" : "false");
+    els.enemyPickerToggle.setAttribute("aria-expanded", state.enemyPickerOpen ? "true" : "false");
+    els.enemyPickerToggle.textContent = state.enemyPickerOpen ? "Hide roster" : "Browse roster";
+    if (!state.enemyPickerOpen) {
+      els.enemyUnitPicker.innerHTML = "";
+      return;
+    }
+
     const term = normalize(query);
-    const units = enemyLookupUnits(enemyGod)
+    const rosterUnits = enemyLookupUnits(enemyGod)
       .filter((unit) => !unit.classes.includes("economic"))
+      .sort(sortUnits);
+    const buildingOptions = unique(rosterUnits.map((unit) => unit.building || "Other"))
+      .map((name) => ({ name, entity: entityByName("buildings", name) }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+    if (state.enemyPickerBuilding !== "all" && !buildingOptions.some((option) => option.entity.id === state.enemyPickerBuilding)) {
+      state.enemyPickerBuilding = "all";
+    }
+    const searchedUnits = rosterUnits
       .filter((unit) => {
         if (!term || target?.unit?.id === unit.id) return true;
         return normalize([unit.name, unit.building, unit.age, unit.classes.join(" ")].join(" ")).includes(term);
-      })
-      .sort(sortUnits);
-    const visibleUnits = enemyGod || term ? units.slice(0, 60) : [];
+      });
+    const selectedBuilding = buildingOptions.find((option) => option.entity.id === state.enemyPickerBuilding);
+    const units = selectedBuilding
+      ? searchedUnits.filter((unit) => normalize(unit.building || "Other") === normalize(selectedBuilding.name))
+      : searchedUnits;
+    const visibleUnits = units.slice(0, 100);
+    const groups = groupBy(visibleUnits, (unit) => enemyUnitPrimaryType(unit).id);
     const heading = enemyGod
-      ? `${enemyGod.name} enemy roster`
+      ? `${enemyGod.name} roster`
       : term
         ? "Matching enemy units"
-        : "Choose an enemy god to browse that roster.";
+        : "All current-age units";
+    const addedUnitIds = new Set(state.enemyComposition.filter((item) => item.kind === "unit").map((item) => item.id));
 
     els.enemyUnitPicker.innerHTML = `
       <div class="enemy-picker-heading">
-        <strong>${escapeHtml(heading)}</strong>
-        ${visibleUnits.length ? `<span>${visibleUnits.length}${units.length > visibleUnits.length ? ` of ${units.length}` : ""}</span>` : ""}
+        <div><p class="eyebrow">Quick unit browser</p><h3>${escapeHtml(heading)}</h3></div>
+        <div class="enemy-picker-heading-actions">
+          <span>${visibleUnits.length}${units.length > visibleUnits.length ? ` of ${units.length}` : ""} shown</span>
+          <button type="button" data-enemy-picker-close aria-label="Close unit browser">×</button>
+        </div>
+      </div>
+      <div class="enemy-picker-buildings" role="group" aria-label="Filter enemy units by production building">
+        ${enemyPickerBuildingButtons(buildingOptions, rosterUnits)}
       </div>
       ${
         visibleUnits.length
-          ? `<div class="enemy-picker-list">${visibleUnits.map(enemyUnitButton).join("")}</div>`
-          : `<div class="muted enemy-picker-empty">${escapeHtml(enemyGod ? "No enemy units match that search." : "The selector above filters the unit list and autocomplete.")}</div>`
+          ? `<div class="enemy-picker-groups">${enemyPickerCategories.filter((category) => category.id !== "all").concat({ id: "other", label: "Other", iconKey: "" }).filter((category) => groups.has(category.id)).map((category) => enemyTypeGroup(category, groups.get(category.id), addedUnitIds)).join("")}</div>`
+          : `<div class="muted enemy-picker-empty">No units match this search and building filter.</div>`
       }
     `;
 
+    Array.from(els.enemyUnitPicker.querySelectorAll("[data-enemy-building-id]")).forEach((button) => {
+      button.addEventListener("click", () => {
+        state.enemyPickerBuilding = button.dataset.enemyBuildingId;
+        localStorage.setItem("aom:enemyPickerBuilding", state.enemyPickerBuilding);
+        renderEnemyUnitPicker(enemyGod, query, target);
+      });
+    });
+    els.enemyUnitPicker.querySelector("[data-enemy-picker-close]")?.addEventListener("click", () => {
+      state.enemyPickerOpen = false;
+      renderEnemyUnitPicker(enemyGod, query, target);
+      els.enemyPickerToggle.focus();
+    });
     Array.from(els.enemyUnitPicker.querySelectorAll("[data-enemy-unit-id]")).forEach((button) => {
       button.addEventListener("click", () => {
         const unit = unitById.get(button.dataset.enemyUnitId);
         if (!unit) return;
         els.enemySearch.value = unit.name;
-        renderCounters();
+        addEnemyCompositionTarget();
       });
     });
   }
 
-  function enemyUnitButton(unit) {
+  function enemyUnitMatchesPickerCategory(unit, categoryId) {
+    if (categoryId === "all") return true;
+    const classes = new Set(unit.classes || []);
+    if (categoryId === "ship") return classes.has("ship") || classes.has("naval") || classes.has("transport");
+    return classes.has(categoryId);
+  }
+
+  function enemyUnitPrimaryType(unit) {
+    const priority = ["hero", "myth", "siege", "ship", "cavalry", "archer", "infantry"];
+    const categoryId = priority.find((id) => enemyUnitMatchesPickerCategory(unit, id)) || "other";
+    return enemyPickerCategories.find((category) => category.id === categoryId) || { id: "other", label: "Other", iconKey: "" };
+  }
+
+  function enemyPickerBuildingButtons(buildings, units) {
+    const allActive = state.enemyPickerBuilding === "all";
+    return [
+      `<button class="enemy-picker-building-filter ${allActive ? "active" : ""}" type="button" data-enemy-building-id="all" aria-pressed="${allActive ? "true" : "false"}"><span class="enemy-building-all-icon" aria-hidden="true">⌂</span><span>All buildings</span><small>${units.length}</small></button>`,
+      ...buildings.map(({ name, entity }) => {
+        const active = entity.id === state.enemyPickerBuilding;
+        const count = units.filter((unit) => normalize(unit.building || "Other") === normalize(name)).length;
+        return `<button class="enemy-picker-building-filter ${active ? "active" : ""}" type="button" data-enemy-building-id="${escapeAttribute(entity.id)}" aria-pressed="${active ? "true" : "false"}">${iconMarkup("buildings", entity, "tiny")}<span>${escapeHtml(name)}</span><small>${count}</small></button>`;
+      }),
+    ].join("");
+  }
+
+  function enemyTypeGroup(category, units, addedUnitIds) {
+    const icon = category.iconKey
+      ? uiIconMarkup("unitTypes", category.iconKey)
+      : `<span class="enemy-type-other-icon" aria-hidden="true">•</span>`;
     return `
-      <button class="enemy-unit-button" type="button" data-enemy-unit-id="${escapeAttribute(unit.id)}">
-        ${iconMarkup("units", unit, "tiny")}
-        <span>
-          <strong>${escapeHtml(unit.name)}</strong>
-          <small>${escapeHtml(unit.age)} / ${escapeHtml(unit.building)}</small>
-        </span>
+      <section class="enemy-type-group">
+        <header>${icon}<strong>${escapeHtml(category.label)}</strong><span>${units.length}</span></header>
+        <div class="enemy-picker-list">${units.map((unit) => enemyUnitButton(unit, addedUnitIds.has(unit.id))).join("")}</div>
+      </section>
+    `;
+  }
+
+  function enemyUnitButton(unit, added = false) {
+    return `
+      <button class="enemy-unit-button ${added ? "added" : ""}" type="button" data-enemy-unit-id="${escapeAttribute(unit.id)}" aria-label="${added ? "Increase presence of" : "Add"} ${escapeAttribute(unit.name)}">
+        ${iconMarkup("units", unit)}
+        <span class="enemy-unit-button-copy"><strong>${escapeHtml(unit.name)}</strong><small>${escapeHtml(unit.age)}</small></span>
+        <span class="enemy-unit-add-mark" aria-hidden="true">${added ? "✓" : "+"}</span>
       </button>
     `;
   }
 
   function counterResult(result) {
-    const { unit, confidence, matches, reasons } = result;
+    const { unit, confidence, matches, reasons, coverageText = "" } = result;
     return `
       <button class="result-item" type="button" data-unit-id="${escapeAttribute(unit.id)}" aria-label="View ${escapeAttribute(unit.name)} in Buildings">
         ${iconMarkup("units", unit)}
         <span class="result-copy">
           <strong class="card-title">${escapeHtml(unit.name)}</strong>
           <span class="card-description">${escapeHtml(unit.note)}</span>
-          <span class="card-description counter-evidence">${escapeHtml(counterReason(reasons))}</span>
+          <span class="card-description counter-evidence">${escapeHtml(coverageText ? `${coverageText}. ${counterReason(reasons)}` : counterReason(reasons))}</span>
           <span class="meta-line">
             ${tag(unit.building, "green")}
             ${tag(unit.age, "gold")}
@@ -1603,7 +2058,7 @@
     if (!unit) return;
 
     const god = selectedGod();
-    const building = availableBuildings(god).find((candidate) => isProducedAt(unit, candidate));
+    const building = availableBuildings(god, "all").find((candidate) => isProducedAt(unit, candidate));
     state.unitId = unit.id;
     localStorage.setItem("aom:selectedUnit", state.unitId);
 
@@ -1616,9 +2071,8 @@
     renderUnits();
     renderCounters();
 
-    if (jumpToBuilding) {
-      navigateTo("building-view");
-    }
+    const viewId = jumpToBuilding || activeViewId() === "building-view" ? "building-view" : "unit-view";
+    navigateEntity("unit", unit.id, { godId: god.id, buildingId: building?.id, viewId });
   }
 
   function upgradesForBuilding(building, god, ageLimit = state.age) {
@@ -1715,14 +2169,15 @@
   }
 
   function upgradeIcon(upgrade) {
+    const upgradeId = slugify(upgrade.name);
     const content = `${iconMarkup("technologies", upgrade, "upgrade")}${upgradeTooltip(upgrade)}`;
-    const attributes = `class="upgrade-icon-button" data-upgrade-id="${escapeAttribute(slugify(upgrade.name))}" aria-label="${escapeAttribute(upgrade.name)}"`;
-
-    if (upgrade.source) {
-      return `<a ${attributes} href="${escapeAttribute(upgrade.source)}" target="_blank" rel="noreferrer">${content}</a>`;
-    }
-
-    return `<span ${attributes} tabindex="0">${content}</span>`;
+    const attributes = `class="upgrade-icon-button" data-upgrade-id="${escapeAttribute(upgradeId)}" aria-label="${escapeAttribute(upgrade.name)}"`;
+    const buildingNames = new Set((upgrade.buildings || []).map(normalize));
+    const routeBuilding = availableBuildings(selectedGod(), "all").find((building) =>
+      building.id === state.buildingId && (!buildingNames.size || buildingNames.has(normalize(building.name))),
+    ) || availableBuildings(selectedGod(), "all").find((building) => buildingNames.has(normalize(building.name)));
+    const route = entityRouteHash("upgrade", upgradeId, { godId: state.godId, buildingId: routeBuilding?.id });
+    return `<a ${attributes} href="${escapeAttribute(route)}">${content}</a>`;
   }
 
   function upgradeTooltip(upgrade) {
@@ -2087,6 +2542,7 @@
   }
 
   function libraryRow(entry) {
+    const internalRoute = libraryEntryRoute(entry);
     return `
       <article class="entity-row">
         ${iconMarkup(entry.iconKind, entry)}
@@ -2094,10 +2550,232 @@
           <div class="meta-line">${tag(entry.type, "red")}${entry.tags.slice(0, 5).map((item) => tag(item, "blue")).join("")}</div>
           <h3>${escapeHtml(entry.name)}</h3>
           <p>${escapeHtml(entry.summary)}</p>
+          ${internalRoute ? `<a href="${escapeAttribute(internalRoute)}">Open in companion</a>` : ""}
           <a href="${escapeAttribute(entry.source)}" target="_blank" rel="noreferrer">Source</a>
         </div>
       </article>
     `;
+  }
+
+  function libraryEntryRoute(entry) {
+    const type = normalize(entry.type);
+    if (type === "major god") return entityRouteHash("god", entry.id);
+    if (type === "building") return entityRouteHash("building", entry.id, { godId: state.godId });
+    if (type === "unit") {
+      const unit = unitById.get(entry.id);
+      const building = availableBuildings(selectedGod(), "all").find((candidate) => unit && isProducedAt(unit, candidate));
+      return entityRouteHash("unit", entry.id, { godId: state.godId, buildingId: building?.id });
+    }
+    if (type === "technology") {
+      const commandEntry = commandEntries.find((candidate) => candidate.kind === "upgrade" && (
+        candidate.entity?.id === entry.id || candidate.id === `upgrade:${slugify(entry.name)}`
+      ));
+      const building = commandEntry && availableBuildings(selectedGod(), "all").find((candidate) =>
+        commandEntry.buildingIds.includes(candidate.id) &&
+        upgradesForBuilding(candidate, selectedGod(), "all").some((upgrade) => slugify(upgrade.name) === entry.id),
+      );
+      return commandEntry && building
+        ? entityRouteHash("upgrade", entry.id, { godId: state.godId, buildingId: building.id })
+        : "";
+    }
+    return "";
+  }
+
+  function openPracticeMode() {
+    const order = selectedBuildOrder();
+    if (!order) {
+      state.buildOrderStatus = "Save and select a build order before starting practice mode.";
+      renderBuildOrders(buildOrderDraftFromForm());
+      return;
+    }
+    stopPracticeClock();
+    practiceState.order = order;
+    practiceState.elapsedMs = 0;
+    practiceState.startedAt = 0;
+    practiceState.completed = new Set();
+    practiceState.recorded = false;
+    renderPracticeMode();
+    if (!els.practiceDialog.open) els.practiceDialog.showModal();
+    requestAnimationFrame(() => els.practiceToggle.focus());
+  }
+
+  function renderPracticeMode() {
+    const order = practiceState.order;
+    if (!order) return;
+    const steps = order.steps || [];
+    const currentIndex = steps.findIndex((step, index) => !practiceState.completed.has(index));
+    const currentStep = currentIndex >= 0 ? steps[currentIndex] : null;
+    const stats = readPracticeStats()[order.id] || null;
+    const progress = steps.length ? Math.round((practiceState.completed.size / steps.length) * 100) : 0;
+    const god = godById.get(order.godId);
+
+    els.practiceTitle.textContent = order.title;
+    els.practiceSubtitle.textContent = `${god?.name || "Unknown god"} · ${order.age === "all" ? "Flexible age" : `${order.age} Age`} · ${steps.length} steps`;
+    els.practiceProgressLabel.textContent = `${practiceState.completed.size} of ${steps.length} steps`;
+    els.practiceBestTime.textContent = stats
+      ? `Best ${formatPracticeTime(stats.bestMs)} · ${stats.runs} completed run${stats.runs === 1 ? "" : "s"}`
+      : "No completed runs yet";
+    els.practiceProgressBar.style.width = `${progress}%`;
+    els.practiceToggle.textContent = practiceState.running ? "Pause" : practiceState.elapsedMs > 0 ? "Resume" : "Start";
+    els.practiceNext.disabled = !currentStep;
+    els.practiceNext.textContent = currentStep ? "Complete current step" : "Run complete";
+    els.practiceCurrent.innerHTML = currentStep
+      ? `<p class="eyebrow">Current step ${currentIndex + 1}</p><div><strong>${escapeHtml(currentStep.action || "Untitled step")}</strong><span>${escapeHtml(currentStep.notes || "Keep the build moving.")}</span></div><span class="practice-current-timing" data-practice-target-seconds="${timeToSeconds(currentStep.time)}"></span>`
+      : `<p class="eyebrow">Run complete</p><div><strong>All steps completed</strong><span>Reset when you are ready for another attempt.</span></div>`;
+    els.practiceSteps.innerHTML = steps.length
+      ? steps.map((step, index) => {
+          const complete = practiceState.completed.has(index);
+          return `
+            <li class="${complete ? "complete" : index === currentIndex ? "current" : ""}">
+              <button type="button" data-practice-step="${index}" aria-pressed="${complete ? "true" : "false"}">
+                <span class="practice-step-check" aria-hidden="true">${complete ? "✓" : index + 1}</span>
+                <span class="practice-step-copy"><strong>${escapeHtml(step.action || "Untitled step")}</strong><small>${escapeHtml(step.notes || "")}</small></span>
+                <time>${escapeHtml(step.time || "--:--")}</time>
+              </button>
+            </li>
+          `;
+        }).join("")
+      : `<li class="practice-empty">This build order has no steps yet.</li>`;
+    els.practiceGoals.innerHTML = order.goals?.length
+      ? order.goals.map((goal) => `<div class="practice-goal"><time>${escapeHtml(goal.time || "--:--")}</time><span>${escapeHtml(goal.text || "Untitled goal")}</span></div>`).join("")
+      : `<p class="muted">No goals saved for this build.</p>`;
+    updatePracticeClock();
+  }
+
+  function togglePracticeTimer() {
+    if (!practiceState.order) return;
+    if (practiceState.running) {
+      pausePracticeTimer();
+      return;
+    }
+    if (practiceState.order.steps.length && practiceState.completed.size === practiceState.order.steps.length) resetPracticeMode();
+    practiceState.running = true;
+    practiceState.startedAt = performance.now();
+    practiceState.timerId = window.setInterval(updatePracticeClock, 100);
+    renderPracticeMode();
+  }
+
+  function pausePracticeTimer() {
+    if (!practiceState.running) return;
+    practiceState.elapsedMs += performance.now() - practiceState.startedAt;
+    stopPracticeClock();
+    renderPracticeMode();
+  }
+
+  function stopPracticeClock() {
+    if (practiceState.timerId) window.clearInterval(practiceState.timerId);
+    practiceState.timerId = null;
+    practiceState.running = false;
+  }
+
+  function resetPracticeMode() {
+    stopPracticeClock();
+    practiceState.elapsedMs = 0;
+    practiceState.startedAt = 0;
+    practiceState.completed = new Set();
+    practiceState.recorded = false;
+    renderPracticeMode();
+  }
+
+  function handlePracticeStepClick(event) {
+    const button = event.target.closest("[data-practice-step]");
+    if (!button) return;
+    const index = Number(button.dataset.practiceStep);
+    if (practiceState.completed.has(index)) practiceState.completed.delete(index);
+    else practiceState.completed.add(index);
+    completePracticeRunIfNeeded();
+    renderPracticeMode();
+  }
+
+  function completeCurrentPracticeStep() {
+    const steps = practiceState.order?.steps || [];
+    const index = steps.findIndex((step, stepIndex) => !practiceState.completed.has(stepIndex));
+    if (index < 0) return;
+    practiceState.completed.add(index);
+    completePracticeRunIfNeeded();
+    renderPracticeMode();
+  }
+
+  function completePracticeRunIfNeeded() {
+    const steps = practiceState.order?.steps || [];
+    if (!steps.length || practiceState.completed.size !== steps.length || practiceState.recorded) return;
+    if (practiceState.running) practiceState.elapsedMs += performance.now() - practiceState.startedAt;
+    stopPracticeClock();
+    practiceState.recorded = true;
+    if (practiceState.elapsedMs < 1000) return;
+    const elapsedMs = Math.max(1, Math.round(practiceState.elapsedMs));
+    const stats = readPracticeStats();
+    const previous = stats[practiceState.order.id] || { bestMs: elapsedMs, lastMs: elapsedMs, runs: 0 };
+    stats[practiceState.order.id] = {
+      bestMs: Math.min(previous.bestMs || elapsedMs, elapsedMs),
+      lastMs: elapsedMs,
+      runs: Number(previous.runs || 0) + 1,
+      completedAt: new Date().toISOString(),
+    };
+    localStorage.setItem("aom:practiceStats", JSON.stringify(stats));
+  }
+
+  function updatePracticeClock() {
+    if (!practiceState.order) return;
+    const elapsedMs = practiceElapsedMs();
+    els.practiceTimer.textContent = formatPracticeTime(elapsedMs);
+    const timing = els.practiceCurrent.querySelector("[data-practice-target-seconds]");
+    if (!timing) return;
+    const targetSeconds = Number(timing.dataset.practiceTargetSeconds || 0);
+    if (!targetSeconds) {
+      timing.textContent = "No target time";
+      return;
+    }
+    const delta = Math.round(targetSeconds - elapsedMs / 1000);
+    timing.textContent = delta >= 0 ? `Due in ${formatClockSeconds(delta)}` : `${formatClockSeconds(Math.abs(delta))} late`;
+    timing.classList.toggle("late", delta < 0);
+  }
+
+  function practiceElapsedMs() {
+    return practiceState.elapsedMs + (practiceState.running ? performance.now() - practiceState.startedAt : 0);
+  }
+
+  function handlePracticeKeydown(event) {
+    if (event.target.matches("input, textarea, select")) return;
+    if (event.key === " ") {
+      if (event.target.closest("button") && event.target !== els.practiceToggle) return;
+      event.preventDefault();
+      togglePracticeTimer();
+    } else if (event.key === "ArrowRight") {
+      event.preventDefault();
+      completeCurrentPracticeStep();
+    } else if (event.key.toLowerCase() === "r" && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      resetPracticeMode();
+    }
+  }
+
+  function readPracticeStats() {
+    try {
+      const stats = JSON.parse(localStorage.getItem("aom:practiceStats") || "{}");
+      return stats && typeof stats === "object" && !Array.isArray(stats) ? stats : {};
+    } catch (error) {
+      return {};
+    }
+  }
+
+  function timeToSeconds(value) {
+    const parts = String(value || "").trim().split(":").map(Number);
+    if (!parts.length || parts.some((part) => !Number.isFinite(part) || part < 0)) return 0;
+    return parts.reduce((total, part) => total * 60 + part, 0);
+  }
+
+  function formatPracticeTime(milliseconds) {
+    const tenths = Math.floor(milliseconds / 100) % 10;
+    const totalSeconds = Math.floor(milliseconds / 1000);
+    return `${formatClockSeconds(totalSeconds)}.${tenths}`;
+  }
+
+  function formatClockSeconds(totalSeconds) {
+    const safeSeconds = Math.max(0, Math.floor(totalSeconds));
+    const minutes = Math.floor(safeSeconds / 60);
+    const seconds = safeSeconds % 60;
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
   }
 
   async function loadBuildOrders() {
@@ -2246,6 +2924,7 @@
     els.buildOrderGoals.innerHTML = goals.map(buildOrderGoalRow).join("") || buildOrderGoalRow({ time: "", text: "" }, 0);
     els.buildOrderSteps.innerHTML = steps.map(buildOrderStepRow).join("") || buildOrderStepRow({ time: "", action: "", notes: "" }, 0);
     els.buildOrderDelete.disabled = !state.buildOrderId || !selectedBuildOrder();
+    els.buildOrderPractice.disabled = !state.buildOrderId || !selectedBuildOrder();
   }
 
   function buildOrderGoalRow(goal, index) {

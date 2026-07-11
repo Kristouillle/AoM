@@ -136,12 +136,16 @@
               </label>
               <label class="field field-light">
                 <span>Enemy unit</span>
-                <input id="enemy-search" type="search" list="enemy-units" autocomplete="off" placeholder="Try cavalry, myth, archer">
-                <datalist id="enemy-units"></datalist>
+                <input id="enemy-search" type="search" autocomplete="off" placeholder="Search units, cavalry, Temple…" aria-controls="enemy-unit-picker" aria-expanded="false">
               </label>
+              <div class="enemy-picker-actions">
+                <button class="secondary-button" type="button" id="enemy-picker-toggle" aria-controls="enemy-unit-picker" aria-expanded="false">Browse roster</button>
+                <button class="secondary-button composition-add-button" type="button" id="composition-add">Add threat</button>
+              </div>
             </div>
+            <div class="enemy-unit-picker" id="enemy-unit-picker" hidden></div>
+            <section class="composition-panel" id="enemy-composition" aria-label="Enemy composition"></section>
             <div class="matchup-brief" id="matchup-brief"></div>
-            <div class="enemy-unit-picker" id="enemy-unit-picker"></div>
             <div class="target-summary" id="target-summary"></div>
             <div class="result-list" id="counter-results"></div>
           </div>
@@ -301,6 +305,7 @@
 
                   <div class="build-order-form-actions">
                     <button class="primary-button" type="submit">Save build</button>
+                    <button class="secondary-button" type="button" id="build-order-practice">Practice build</button>
                     <button class="secondary-button" type="button" id="build-order-export">Export code</button>
                     <button class="danger-button" type="button" id="build-order-delete">Delete</button>
                   </div>
@@ -353,8 +358,54 @@
         <div class="command-palette-footer" aria-hidden="true">
           <span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
           <span><kbd>Enter</kbd> Open</span>
+          <span><kbd>Alt</kbd><kbd>Enter</kbd> Favourite</span>
           <span><kbd>Esc</kbd> Close</span>
         </div>
+      </div>
+    </dialog>
+
+    <dialog class="practice-dialog" id="practice-dialog" aria-labelledby="practice-title">
+      <div class="practice-shell">
+        <header class="practice-header">
+          <div>
+            <p class="eyebrow">Build-order trainer</p>
+            <h2 id="practice-title">Practice build</h2>
+            <p id="practice-subtitle">Run the build as a timed checklist.</p>
+          </div>
+          <button class="command-palette-close" type="button" id="practice-close" aria-label="Close practice mode">Esc</button>
+        </header>
+        <section class="practice-scoreboard" aria-live="polite">
+          <div class="practice-timer" id="practice-timer">00:00.0</div>
+          <div class="practice-progress-copy">
+            <strong id="practice-progress-label">0 of 0 steps</strong>
+            <span id="practice-best-time">No completed runs yet</span>
+          </div>
+          <div class="practice-progress-track" aria-hidden="true"><span id="practice-progress-bar"></span></div>
+        </section>
+        <section class="practice-current" id="practice-current"></section>
+        <div class="practice-controls">
+          <button class="primary-button" type="button" id="practice-toggle">Start</button>
+          <button class="secondary-button" type="button" id="practice-next">Complete current step</button>
+          <button class="secondary-button" type="button" id="practice-reset">Reset</button>
+        </div>
+        <div class="practice-body">
+          <section>
+            <div class="practice-section-heading">
+              <h3>Steps</h3>
+              <span>Click any step to toggle it</span>
+            </div>
+            <ol class="practice-steps" id="practice-steps"></ol>
+          </section>
+          <aside class="practice-goals-panel">
+            <h3>Goals</h3>
+            <div id="practice-goals"></div>
+          </aside>
+        </div>
+        <footer class="practice-footer">
+          <span><kbd>Space</kbd> Start / pause</span>
+          <span><kbd>→</kbd> Complete step</span>
+          <span><kbd>R</kbd> Reset</span>
+        </footer>
       </div>
     </dialog>
 
