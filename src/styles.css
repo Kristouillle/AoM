@@ -2354,14 +2354,51 @@ body.has-roster-filters .context-filters {
 
 .building-layout {
   display: grid;
-  grid-template-columns: 360px minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: 270px minmax(0, 1fr);
+  gap: 18px;
   align-items: start;
 }
 
 .building-list {
   display: grid;
-  gap: 8px;
+  gap: 14px;
+}
+
+.building-age-group,
+.building-age-items {
+  display: grid;
+}
+
+.building-age-group {
+  gap: 4px;
+}
+
+.building-age-items {
+  gap: 2px;
+}
+
+.building-age-heading {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 7px;
+  align-items: center;
+  min-height: 28px;
+  padding: 2px 7px;
+  color: var(--muted);
+  font-size: 0.69rem;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.building-age-heading .resource-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.building-age-heading > span:last-child {
+  font-size: 0.64rem;
+  font-weight: 800;
+  opacity: 0.76;
 }
 
 .building-button {
@@ -2369,27 +2406,41 @@ body.has-roster-filters .context-filters {
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   width: 100%;
-  gap: 5px;
-  padding: 12px;
+  min-height: 40px;
+  gap: 8px;
+  padding: 5px 7px;
   color: var(--ink);
+  background: transparent;
+  border-color: transparent;
+  border-radius: 7px;
   text-align: left;
 }
 
 .building-button:hover,
 .building-button.active {
-  border-color: #ce8d32;
+  border-color: #e3d1aa;
   background: #fff8ea;
+}
+
+.building-button.active {
+  box-shadow: inset 3px 0 0 var(--gold);
 }
 
 .building-button > .building-button-copy > span {
   color: var(--muted);
-  font-size: 0.85rem;
+  font-size: 0.69rem;
+  text-transform: capitalize;
 }
 
 .building-button-copy {
   display: grid;
-  gap: 5px;
+  gap: 2px;
   min-width: 0;
+}
+
+.building-button-copy strong {
+  font-size: 0.8rem;
+  line-height: 1.05;
 }
 
 .building-button-copy strong,
@@ -3152,6 +3203,11 @@ body.has-roster-filters .context-filters {
     grid-template-columns: 1fr;
   }
 
+  .building-list {
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    align-items: start;
+  }
+
   .unit-side-detail {
     position: static;
   }
@@ -3181,6 +3237,10 @@ body.has-roster-filters .context-filters {
   }
 
   .sidebar {
+    grid-template-columns: 1fr;
+  }
+
+  .building-list {
     grid-template-columns: 1fr;
   }
 

@@ -1209,18 +1209,33 @@
     }
     localStorage.setItem("aom:selectedBuilding", state.buildingId);
 
-    els.buildingList.innerHTML = buildings
-      .map(
-        (building) => `
-          <button class="building-button ${building.id === state.buildingId ? "active" : ""}" type="button" data-building-id="${building.id}" aria-pressed="${building.id === state.buildingId ? "true" : "false"}">
-            ${iconMarkup("buildings", building)}
-            <span class="building-button-copy">
-              <strong>${escapeHtml(building.name)}</strong>
-              <span>${escapeHtml(building.age)} / ${escapeHtml(building.type)}</span>
-            </span>
-          </button>
-        `,
-      )
+    const buildingsByAge = groupBy(buildings, (building) => building.age || "Other");
+    const orderedAges = [...data.ages, ...Array.from(buildingsByAge.keys()).filter((age) => !data.ages.includes(age))];
+    els.buildingList.innerHTML = orderedAges
+      .filter((age) => buildingsByAge.has(age))
+      .map((age) => {
+        const ageBuildings = buildingsByAge.get(age);
+        return `
+          <section class="building-age-group" aria-label="${escapeAttribute(age)} Age buildings">
+            <div class="building-age-heading">
+              ${uiIconMarkup("ages", ageIconKey(age))}
+              <strong>${escapeHtml(age)}</strong>
+              <span>${ageBuildings.length}</span>
+            </div>
+            <div class="building-age-items">
+              ${ageBuildings.map((building) => `
+                <button class="building-button ${building.id === state.buildingId ? "active" : ""}" type="button" data-building-id="${building.id}" aria-pressed="${building.id === state.buildingId ? "true" : "false"}">
+                  ${iconMarkup("buildings", building, "tiny")}
+                  <span class="building-button-copy">
+                    <strong>${escapeHtml(building.name)}</strong>
+                    <span>${escapeHtml(building.type)}</span>
+                  </span>
+                </button>
+              `).join("")}
+            </div>
+          </section>
+        `;
+      })
       .join("");
 
     Array.from(els.buildingList.querySelectorAll("[data-building-id]")).forEach((button) => {
